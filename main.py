@@ -59,16 +59,18 @@ def main():
     # -------------------------------------------------------------------------------
     # The task is to minimize f(x) = ||Ax - b||², with gradient ∇f(x) = 2 Aᵀ (Ax - b)
     # -------------------------------------------------------------------------------
-    A = load_sparse_matrix_from_ssget("bcsstk13")
+    # A = load_sparse_matrix_from_ssget("bcsstk13")
+    A = load_sparse_matrix_from_ssget("bcspwr01")
     A = torch.tensor(A.toarray(), dtype=torch.float32, device=device)
     m = A.shape[0] # Number of rows in matrix A (dimension of output vector b)
     d = A.shape[1] # Number of columns in matrix A (dimension of parameter vector x)
 
-    training_samples = 64 # Number of linear regression tasks to sample for training
+    training_samples = 1024 # Number of linear regression tasks to sample for training
+    T = 50  # Number of iterations for the inner loop   
 
     # Instantiate the training dataset and dataloader
     training_dataset = LinearRegressionDataset(m=m, d=d, num_samples=training_samples, device=device)
-    training_dataloader = DataLoader(training_dataset, batch_size=2, shuffle=True)
+    training_dataloader = DataLoader(training_dataset, batch_size=32, shuffle=True)
     
     # Initialize the LearnedUpdate module with a fixed rho (e.g., 0.99)
     learned_update = LearnedUpdate(d, q=0, rho=0.99, hidden_size1=5, hidden_size2=5).to(device)
@@ -77,7 +79,7 @@ def main():
     # Meta optimizer (updates both the MLP and the alpha parameters)
     meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-3)
 
-    learned_update = meta_training(learned_update, A, training_dataloader, meta_optimizer, m, device, epochs=3)
+    learned_update = meta_training(learned_update, A, training_dataloader, meta_optimizer, T, device, epochs=500)
 
     # Save the trained learned optimizer parameters
     directory_path = './trained_models/'
@@ -86,13 +88,13 @@ def main():
     torch.save(learned_update.state_dict(), file_path)
     print(f"Trained learned optimizer saved to {file_path}")
 
-    # test_samples = 128  # Number of linear regression tasks to sample for testing
-    # # Instantiate the test dataset and dataloader
-    # test_dataset = LinearRegressionDataset(m=m, d=d, num_samples=test_samples, device=device)
-    # test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    test_samples = 128  # Number of linear regression tasks to sample for testing
+    # Instantiate the test dataset and dataloader
+    test_dataset = LinearRegressionDataset(m=m, d=d, num_samples=test_samples, device=device)
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=True)
 
     # Evaluate the learned optimizer
-    evaluate(learned_update, A, m, d, device)
+    evaluate(learned_update, A, test_dataloader, T, device)
 
 if __name__ == "__main__":
     main()

@@ -42,25 +42,42 @@ class LearnedUpdate(nn.Module):
         self.q = q
         self.rho = rho  # fixed (non-learnable) discount factor
     
-    def get_dimension(self):
-        return (self.mlp.layer1.in_features - 1 )/ 2
-    
-    def forward(self, x, loss_val, grad, t):
+    def forward(self, x_batch, loss_batch, grad_batch, t):
         """
-        x: tensor of shape (1, d)
-        loss_val: tensor of shape (1, 1)
-        grad: tensor of shape (1, d)
+        x_batch: tensor of shape (batch_size, d, 1)
+        loss_batch: tensor of shape (batch_size, 1, 1)
+        grad_batch: tensor of shape (batch_size, d, 1)
         t: current time-step (an integer or float)
         """
-        # Concatenate x, loss, and grad to form the input for the MLP.
-        input_vec = torch.hstack([x, loss_val, grad])   # shape: (1, 2*d + 1)
-        mlp_out = torch.tanh(self.mlp(input_vec))       # shape: (1, d)
 
-        # Compute the polynomial factor: [1, t, t^2, ..., t^q] dot α (with α transformed to be positive)
-        alpha = F.softplus(self.alpha_raw)  # shape: (q+1,)
-        poly_terms = torch.tensor([t ** i for i in range(self.q + 1)], device=x.device, dtype=x.dtype)  # shape: (q+1,)
-        poly_factor = torch.dot(alpha, poly_terms)  # scalar
+        batch_size = x_batch.shape[0]  
+        results = []
 
-        # Multiply the MLP output by the polynomial factor and a fixed decay factor ρ^t.
-        v_t = poly_factor * mlp_out * (self.rho ** t)  # shape: (1, d)
-        return v_t
+        for i in range(batch_size):
+            input_vec = torch.vstack([x_batch[i], loss_batch[i], grad_batch[i]])  # Shape: (2d+1, 1)
+            output = torch.tanh(self.mlp(input_vec.squeeze(-1)))  # Shape: (2d+1, d)
+            results.append(output)
+
+        direction_batch = torch.stack(results, dim=0)  # Shape: (batch_size, 2d+1, d)
+
+        # Compute the polynomial factor
+        alpha = F.softplus(self.alpha_raw)
+        poly_terms = torch.tensor([t ** i for i in range(self.q + 1)], device=x_batch.device, dtype=x_batch.dtype)
+        poly_factor = torch.dot(alpha, poly_terms)
+
+        # Apply update rule
+        v_t_batch = poly_factor * direction_batch * (self.rho ** t)  # Shape: (batch_size, 2d+1, d)
+        return v_t_batch
+
+        # # Concatenate x, loss, and grad to form the input for the MLP.
+        # input_vec_batch = torch.hstack([x_batch, loss_batch, grad_batch])   # shape: (batch_size, 2*d + 1,1)
+        # direction_batch = torch.tanh(self.mlp(input_vec_batch.squeeze(-1)))       # shape: (batch_size, d)
+
+        # # Compute the polynomial factor: [1, t, t^2, ..., t^q] dot α (with α transformed to be positive)
+        # alpha = F.softplus(self.alpha_raw)  # shape: (q+1,)
+        # poly_terms = torch.tensor([t ** i for i in range(self.q + 1)], device=x_batch.device, dtype=x_batch.dtype)  # shape: (q+1,)
+        # poly_factor = torch.dot(alpha, poly_terms)  # scalar
+
+        # # Multiply the MLP output by the polynomial factor and a fixed decay factor ρ^t.
+        # v_t_batch = poly_factor * direction_batch * (self.rho ** t)  # shape: (1, d)
+        # return v_t_batch
