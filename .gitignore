@@ -1,0 +1,3 @@
+# Ignore virtual environment folder
+.venv/
+trained_models/
