@@ -1,3 +1,4 @@
 # Ignore virtual environment folder
 .venv/
 trained_models/
+trained_models/learnt_optimizer_quadratic_updated.pt

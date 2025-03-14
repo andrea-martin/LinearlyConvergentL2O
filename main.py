@@ -42,24 +42,41 @@ def load_sparse_matrix_from_ssget(matrix_name):
     with tarfile.open(matrix_data[0], "r:gz") as tar:
         tar.extractall(path=extraction_dir)
 
-    # Step 3: Locate the .mtx file inside the extracted folder
+    # Step 3: Locate .mtx files inside the extracted folder
     mtx_files = glob.glob(f"{extraction_dir}/**/*.mtx", recursive=True)
 
     if not mtx_files:
-        raise FileNotFoundError(f"No .mtx file found after extraction for {matrix_name}!")
+        raise FileNotFoundError(f"No .mtx file found after extraction for '{matrix_name}'!")
 
-    # Step 4: Load the matrix from the .mtx file
-    matrix = mmread(mtx_files[0])
+    # Step 4: Handle multiple .mtx files intelligently
+    if len(mtx_files) == 1:
+        mtx_file_path = mtx_files[0]
+    else:
+        # Prefer files matching the matrix name exactly or common patterns
+        preferred_files = [f for f in mtx_files if matrix_name in os.path.basename(f).lower()]
+        
+        if len(preferred_files) == 1:
+            mtx_file_path = preferred_files[0]
+        else:
+            # If still ambiguous, ask the user which one to use
+            print("⚠️ Multiple .mtx files found. Please select one:")
+            for idx, file in enumerate(mtx_files):
+                print(f"  [{idx+1}] {file}")
+            choice = int(input("Enter the number of the file you want to load: ")) - 1
+            mtx_file_path = mtx_files[choice]
 
-    # Step 5: Print matrix shape and return the matrix
-    print(f"✅ Loaded matrix '{matrix_name}' with shape: {matrix.shape}")
+    # Step 5: Load the selected matrix file
+    matrix = mmread(mtx_file_path)
+
+    # Step 6: Print matrix shape and return the matrix
+    print(f"✅ Loaded matrix '{matrix_name}' from '{os.path.basename(mtx_file_path)}' with shape: {matrix.shape}")
     return matrix
 
 def main():
     # -------------------------------------------------------------------------------
     # The task is to minimize f(x) = ||Ax - b||², with gradient ∇f(x) = 2 Aᵀ (Ax - b)
     # -------------------------------------------------------------------------------
-    # A = load_sparse_matrix_from_ssget("bcsstk13")
+    #A = load_sparse_matrix_from_ssget("bcsstk13")
     A = load_sparse_matrix_from_ssget("bcspwr01")
     A = torch.tensor(A.toarray(), dtype=torch.float32, device=device)
     m = A.shape[0] # Number of rows in matrix A (dimension of output vector b)
@@ -79,7 +96,7 @@ def main():
     # Meta optimizer (updates both the MLP and the alpha parameters)
     meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-3)
 
-    learned_update = meta_training(learned_update, A, training_dataloader, meta_optimizer, T, device, epochs=500)
+    learned_update = meta_training(learned_update, A, training_dataloader, meta_optimizer, T, device, epochs=5)
 
     # Save the trained learned optimizer parameters
     directory_path = './trained_models/'
