@@ -1,6 +1,6 @@
 import torch
 
-def meta_training(model, A, dataloader, meta_optimizer, T, device, epochs):
+def meta_training(model, A, x0, dataloader, meta_optimizer, T, device, epochs):
 
     m = A.shape[0] # Number of rows in matrix A (dimension of output vector b)
     d = A.shape[1] # Number of columns in matrix A (dimension of parameter vector x)
@@ -14,14 +14,13 @@ def meta_training(model, A, dataloader, meta_optimizer, T, device, epochs):
 
     model.train() # set to training mode
 
-    print("starting training....")
     for epoch in range(epochs):
         
         meta_optimizer.zero_grad()
         meta_loss = torch.zeros(1, device=device)
         
         # Initialize parameter vector x (shape: (d, 1))
-        x_batch = torch.zeros(batch_size, d, 1, device=device)
+        x_batch = x0.unsqueeze(0).repeat(batch_size, 1, 1) #torch.zeros(batch_size, d, 1, device=device)
         
         for t in range(T):
             # Gradient computation
@@ -50,8 +49,9 @@ def meta_training(model, A, dataloader, meta_optimizer, T, device, epochs):
             # Accumulate the weighted loss (meta-loss) over the inner trajectory
             meta_loss = meta_loss +  loss_batch.sum()
 
-        meta_loss = meta_loss / batch_size
-        print(f"Epoch {epoch+1} - Average Meta Loss: {meta_loss.item()}")
+        print_every = 1
+        if epoch == 0 or (epoch + 1) % print_every == 0:
+            print(f"Epoch {epoch+1} - average meta loss: {(meta_loss / (T*batch_size)).item():.2f}")
         
         meta_loss.backward()
         meta_optimizer.step()

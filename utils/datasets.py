@@ -32,6 +32,6 @@ class LinearRegressionDataset(Dataset):
         # A[:min_dim, :min_dim] = torch.diag(torch.sqrt(eigenvalues_ATA[:min_dim]))
 
         # Generate b vector randomly
-        b = torch.rand(self.m, device=self.device)
+        b = 0.5 * torch.ones(self.m, device=self.device) #+ 0.05 * torch.rand(self.m, device=self.device)
 
         return b

@@ -1,19 +1,43 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.init as init
+
+
 
 class SimpleMLP(nn.Module):
-    def __init__(self, input_size, hidden_size1, hidden_size2, output_size):
+    def __init__(self, input_size, hidden_sizes, output_size):
         super(SimpleMLP, self).__init__()
-        self.layer1 = nn.Linear(input_size, hidden_size1)
-        self.layer2 = nn.Linear(hidden_size1, hidden_size2)
-        self.output_layer = nn.Linear(hidden_size2, output_size)
+        
+        # Create the layers dynamically
+        self.layers = nn.ModuleList()
+        prev_size = input_size
+        
+        for hidden_size in hidden_sizes:
+            self.layers.append(nn.Linear(prev_size, hidden_size))
+            prev_size = hidden_size
+
+        self.output_layer = nn.Linear(prev_size, output_size)
+
+        # Call custom initializer function
+        self._initialize_weights()
 
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
+        # Pass through all layers with ReLU activations
+        for layer in self.layers:
+            x = F.relu(layer(x))
         x = self.output_layer(x)
         return x
+
+    def _initialize_weights(self):
+        """ Custom weight initialization function """
+        for layer in self.layers:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_normal_(layer.weight)
+                nn.init.zeros_(layer.bias)
+
+        nn.init.kaiming_normal_(self.output_layer.weight)
+        nn.init.zeros_(self.output_layer.bias)
     
 # ---------------------------------------------------------------------------
 # LearnedUpdate:
@@ -27,7 +51,7 @@ class SimpleMLP(nn.Module):
 #   - ρ is a fixed constant (e.g. 0.99) that scales the update over time.
 # ---------------------------------------------------------------------------
 class LearnedUpdate(nn.Module):
-    def __init__(self, d, q, rho, hidden_size1, hidden_size2):
+    def __init__(self, d, q, rho, hidden_sizes):
         """
         d: dimension of parameter vector x.
         q: order of the polynomial (i.e. there are q+1 coefficients). For example, q=2 uses [1, t, t²]
@@ -35,9 +59,10 @@ class LearnedUpdate(nn.Module):
         """
         super(LearnedUpdate, self).__init__()
         # The MLP takes a vector of size 2*d + 1 ([x, f(x), grad f(x)]) and outputs a vector of size d.
-        self.mlp = SimpleMLP(input_size=2 * d + 1, hidden_size1=hidden_size1, hidden_size2=hidden_size2, output_size=d)
+        self.mlp = SimpleMLP(input_size=2 * d + 1, hidden_sizes=hidden_sizes, output_size=d)
+        
         # Initialize raw alpha parameters; they will be transformed to be positive.
-        self.alpha_raw = nn.Parameter(torch.full((q + 1,), -2.0))
+        self.alpha_raw = nn.Parameter(torch.full((q + 1,), -13.0))
 
         self.q = q
         self.rho = rho  # fixed (non-learnable) discount factor
