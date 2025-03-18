@@ -75,11 +75,11 @@ def load_sparse_matrix_from_ssget(matrix_name):
 def main():
     # -------------------------------------------------------------------------------
     # The task is to minimize f(x) = ||Ax - b||², with gradient ∇f(x) = 2 Aᵀ (Ax - b)
-    # -------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
     # A = load_sparse_matrix_from_ssget("685_bus")
-    A = load_sparse_matrix_from_ssget("bcsstk02")
+    # A = load_sparse_matrix_from_ssget("bcsstk02")
     # A = load_sparse_matrix_from_ssget("1138_bus")
-    # A = load_sparse_matrix_from_ssget("msc01440")
+    A = load_sparse_matrix_from_ssget("msc01440")
     # A = load_sparse_matrix_from_ssget("Trefethen_20b")
     # A = load_sparse_matrix_from_ssget("Journals")
     A = torch.tensor(A.toarray(), dtype=torch.float32, device=device)
@@ -93,16 +93,16 @@ def main():
 
     # Instantiate the training dataset and dataloader
     training_dataset = LinearRegressionDataset(m=m, d=d, num_samples=training_samples, device=device)
-    training_dataloader = DataLoader(training_dataset, batch_size=32, shuffle=True)
+    training_dataloader = DataLoader(training_dataset, batch_size=2, shuffle=True)
     
     # Initialize the LearnedUpdate module with a fixed rho (e.g., 0.99)
-    learned_update = LearnedUpdate(d, q=0, rho=0.99, hidden_sizes=[512, 512, 512]).to(device)
+    learned_update = LearnedUpdate(d, q=0, rho=0.99, hidden_sizes=[256, 256, 256]).to(device)
     print(f"Total parameters in LearnedUpdate: {sum(p.numel() for p in learned_update.parameters() if p.requires_grad)}")
 
     # Meta optimizer (updates both the MLP and the alpha parameters)
     meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-3)
 
-    learned_update = meta_training(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=30)
+    learned_update = meta_training(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=100)
 
     # # Save the trained learned optimizer parameters
     # directory_path = './models/'
@@ -111,10 +111,10 @@ def main():
     # torch.save(learned_update.state_dict(), file_path)
     # print(f"Trained learned optimizer saved to {file_path}")
 
-    test_samples = 16  # Number of linear regression tasks to sample for testing
+    test_samples = 1  # Number of linear regression tasks to sample for testing
     # Instantiate the test dataset and dataloader
     test_dataset = LinearRegressionDataset(m=m, d=d, num_samples=test_samples, device=device)
-    test_dataloader = DataLoader(test_dataset, batch_size=16, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=True)
 
     # Evaluate the learned optimizer
     evaluate(learned_update, A, x0, test_dataloader, T, device)

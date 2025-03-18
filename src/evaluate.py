@@ -45,7 +45,7 @@ def evaluate(model, A, x0, dataloader, T, device):
             grad_batch = 2 * A.T @ residual_batch
             
             with torch.no_grad():
-                v_t_batch = model(x_learned_batch, loss_batch, grad_batch, t)
+                v_t_batch = model(x_learned_batch, 0*loss_batch, 0*grad_batch, t)
                 v.append(v_t_batch.norm().item())
 
             x_learned_batch = x_learned_batch - eta * grad_batch + v_t_batch.unsqueeze(-1)
@@ -156,7 +156,7 @@ def evaluate(model, A, x0, dataloader, T, device):
     mean_loss_nag = loss_nag_per_sample.mean(dim=1)
     std_loss_nag = loss_nag_per_sample.std(dim=1)
 
-
+    print(f"Average meta loss L2O: {(mean_loss.sum() / T).item():.2f}")
     print(f"Average meta loss GD: {(mean_loss_gd.sum() / T).item():.2f}")
     print(f"Average meta loss NAG: {(mean_loss_nag.sum() / T).item():.2f}")
 

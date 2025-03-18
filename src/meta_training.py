@@ -4,10 +4,17 @@ def meta_training(model, A, x0, dataloader, meta_optimizer, T, device, epochs):
 
     m = A.shape[0] # Number of rows in matrix A (dimension of output vector b)
     d = A.shape[1] # Number of columns in matrix A (dimension of parameter vector x)
-    U, S, V = torch.svd(A)
-    lambda_max = S.max().item() ** 2
-    eta = 1/(2*lambda_max)/2
+    _, S, _ = torch.linalg.svd(A)
+    sigma_max_A = S.max().item() # Maximum singular value of A = maximum eigenvalue of A since A > 0
+    sigma_min_A = S.min().item() # Minimum singular value of A = minimum eigenvalue of A since A > 0
+    lambda_max_ATA = sigma_max_A**2
+    lambda_min_ATA = sigma_min_A**2
+    beta = 2*lambda_max_ATA
+    alpha = 2*lambda_min_ATA
     
+    #eta = 1/(2*lambda_max)/2
+    eta = 2/(beta + alpha)
+
     dataloader_iter = iter(dataloader)
     b_batch = next(dataloader_iter)
     batch_size = b_batch.shape[0]
@@ -41,7 +48,7 @@ def meta_training(model, A, x0, dataloader, meta_optimizer, T, device, epochs):
             
             # Prepare inputs for the learned update:
             # loss_val = loss_batch.view(1, 1)  # shape: (1, 1)
-            v_t_batch = model(x_batch, loss_batch, grad_batch, t)
+            v_t_batch = model(x_batch, 0*loss_batch, 0*grad_batch, t)
 
             # Update parameter vector: standard gradient descent step plus the learned update v_t
             x_batch = x_batch - eta * grad_batch + v_t_batch.unsqueeze(-1)
