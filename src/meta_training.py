@@ -48,10 +48,11 @@ def meta_training(model, A, x0, dataloader, meta_optimizer, T, device, epochs):
             
             # Prepare inputs for the learned update:
             # loss_val = loss_batch.view(1, 1)  # shape: (1, 1)
-            v_t_batch = model(x_batch, 0*loss_batch, 0*grad_batch, t)
+            v_t_batch = model(x_batch, loss_batch, grad_batch, t)
 
             # Update parameter vector: standard gradient descent step plus the learned update v_t
-            x_batch = x_batch - eta * grad_batch + v_t_batch.unsqueeze(-1)
+            x_batch_new = x_batch - eta * grad_batch + v_t_batch.unsqueeze(-1)
+            x_batch = x_batch_new
 
             # Accumulate the weighted loss (meta-loss) over the inner trajectory
             meta_loss = meta_loss +  loss_batch.sum()

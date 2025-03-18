@@ -21,15 +21,9 @@ class LinearRegressionDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, idx):
-        # Generate A matrix with custom eigenvalues
-        # min_dim = min(self.m, self.d)        
-
-        # eigenvalues_ATA = torch.randint(1, 1001, (self.m - 2,), device=self.device, dtype=torch.float)
-        # eigenvalues_ATA = torch.cat([eigenvalues_ATA, torch.tensor([1.0, 1000.0], device=self.device)])
-        # eigenvalues_ATA = eigenvalues_ATA[torch.randperm(len(eigenvalues_ATA))]
         
-        # A = torch.zeros(self.m, self.d, device=self.device)
-        # A[:min_dim, :min_dim] = torch.diag(torch.sqrt(eigenvalues_ATA[:min_dim]))
+        # Add a random perturbation to the A matrix
+        # binary_mask = (A != 0).int()
 
         # Generate b vector randomly
         b = 0.5 * torch.ones(self.m, device=self.device) + 0.25 * torch.rand(self.m, device=self.device)

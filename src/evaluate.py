@@ -1,6 +1,10 @@
 import torch
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 
 def evaluate(model, A, x0, dataloader, T, device):
     
@@ -45,7 +49,7 @@ def evaluate(model, A, x0, dataloader, T, device):
             grad_batch = 2 * A.T @ residual_batch
             
             with torch.no_grad():
-                v_t_batch = model(x_learned_batch, 0*loss_batch, 0*grad_batch, t)
+                v_t_batch = model(x_learned_batch, loss_batch, grad_batch, t)
                 v.append(v_t_batch.norm().item())
 
             x_learned_batch = x_learned_batch - eta * grad_batch + v_t_batch.unsqueeze(-1)

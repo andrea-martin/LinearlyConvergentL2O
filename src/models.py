@@ -82,7 +82,7 @@ class SimpleMLP(nn.Module):
 #   - ρ is a fixed constant (e.g. 0.99) that scales the update over time.
 # ---------------------------------------------------------------------------
 class LearnedUpdate(nn.Module):
-    def __init__(self, d, q, rho, hidden_sizes):
+    def __init__(self, d, q, rho, hidden_sizes, architecture='mlp'):
         """
         d: dimension of parameter vector x.
         q: order of the polynomial (i.e. there are q+1 coefficients). For example, q=2 uses [1, t, t²]
@@ -99,6 +99,8 @@ class LearnedUpdate(nn.Module):
 
         self.q = q
         self.rho = rho  # fixed (non-learnable) discount factor
+
+        self.architecture = architecture
     
     def forward(self, x_batch, loss_batch, grad_batch, t):
         """
@@ -107,15 +109,10 @@ class LearnedUpdate(nn.Module):
         grad_batch: tensor of shape (batch_size, d, 1)
         t: current time-step (an integer or float)
         """
-        architecture = 'lstm'   
-        
+
         batch_size = x_batch.shape[0]  
         results = []
 
-        # for i in range(batch_size):
-        #     input_vec = torch.vstack([x_batch[i], loss_batch[i], grad_batch[i]])  # Shape: (2d+1, 1)
-        #     output = torch.tanh(self.mlp(input_vec.squeeze(-1)))  # Shape: (2d+1, d)
-        #     results.append(output)
         for i in range(batch_size):
             # Compute separate alpha values
             alpha_x = torch.norm(x_batch[i], p=float('inf'))  # Max norm of x_batch[i]
@@ -136,11 +133,35 @@ class LearnedUpdate(nn.Module):
             input_vec = torch.vstack([x_scaled, loss_scaled, grad_scaled])  # Shape: (2d+1, 1)
             mlp_output = torch.tanh(self.mlp(input_vec.squeeze(-1)))  # Shape: (d,)
 
-            lstm_output, (self.lstm.hidden1, self.lstm.cell1), (self.lstm.hidden2, self.lstm.cell2) = self.lstm.forward(input_vec.T, self.lstm.hidden1, self.lstm.cell1, self.lstm.hidden2, self.lstm.cell2)  # Shape: (d,)
-            lstm_output = torch.tanh(lstm_output)
+            # lstm_output, (self.lstm.hidden1, self.lstm.cell1), (self.lstm.hidden2, self.lstm.cell2) = self.lstm.forward(input_vec.T, self.lstm.hidden1, self.lstm.cell1, self.lstm.hidden2, self.lstm.cell2)  # Shape: (1, d)
+            # lstm_output = torch.tanh(lstm_output).squeeze(0)
+            # Update LSTM states without modifying them in-place
+            
+            
+            if t == 0:
+                if self.architecture == 'lstm':
+                    lstm_output, (self.lstm.hidden1, self.lstm.cell1), (self.lstm.hidden2, self.lstm.cell2) = self.lstm.forward(input_vec.T, self.lstm.hidden1_0, self.lstm.cell1_0, self.lstm.hidden2_0, self.lstm.cell2_0)
+                    lstm_output = torch.tanh(lstm_output).squeeze(0)
+                else:
+                    pass
+            else:
+                if self.architecture == 'lstm':
+                    lstm_output, (self.lstm.hidden1, self.lstm.cell1), (self.lstm.hidden2, self.lstm.cell2) = self.lstm.forward(input_vec.T, self.lstm.hidden1, self.lstm.cell1, self.lstm.hidden2, self.lstm.cell2)
+                    lstm_output = torch.tanh(lstm_output).squeeze(0)
+                else:
+                    pass
+                    
+            
+            # lstm_output, (hidden1_new, cell1_new), (hidden2_new, cell2_new) = self.lstm.forward(
+            #     input_vec.T, self.lstm.hidden1, self.lstm.cell1, self.lstm.hidden2, self.lstm.cell2
+            # )
+            # # Update the LSTM states after computation
+            # self.lstm.hidden1, self.lstm.cell1 = hidden1_new, cell1_new
+            # self.lstm.hidden2, self.lstm.cell2 = hidden2_new, cell2_new
+            # lstm_output = torch.tanh(lstm_output).squeeze(0)
 
             # Rescale output
-            if architecture == 'lstm':
+            if self.architecture == 'lstm':
                 output = lstm_output * alpha_x
             else:
                 output = mlp_output * alpha_x  # Rescale using alpha_x (assuming x is the dominant feature)
@@ -157,15 +178,4 @@ class LearnedUpdate(nn.Module):
         # Apply update rule
         v_t_batch = poly_factor * direction_batch * (self.rho ** t)  # Shape: (batch_size, 2d+1, d)
 
-        # # Concatenate x, loss, and grad to form the input for the MLP.
-        # input_vec_batch = torch.hstack([x_batch, loss_batch, grad_batch])   # shape: (batch_size, 2*d + 1,1)
-        # direction_batch = torch.tanh(self.mlp(input_vec_batch.squeeze(-1)))       # shape: (batch_size, d)
-
-        # # Compute the polynomial factor: [1, t, t^2, ..., t^q] dot α (with α transformed to be positive)
-        # alpha = F.softplus(self.alpha_raw)  # shape: (q+1,)
-        # poly_terms = torch.tensor([t ** i for i in range(self.q + 1)], device=x_batch.device, dtype=x_batch.dtype)  # shape: (q+1,)
-        # poly_factor = torch.dot(alpha, poly_terms)  # scalar
-
-        # # Multiply the MLP output by the polynomial factor and a fixed decay factor ρ^t.
-        # v_t_batch = poly_factor * direction_batch * (self.rho ** t)  # shape: (1, d)
         return v_t_batch

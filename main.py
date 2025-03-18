@@ -11,7 +11,6 @@ from scipy.io import mmread
 import tarfile
 import glob
 
-from src.models import SimpleMLP
 from src.models import LearnedUpdate
 from src.meta_training import meta_training 
 from src.evaluate import evaluate
@@ -93,16 +92,16 @@ def main():
 
     # Instantiate the training dataset and dataloader
     training_dataset = LinearRegressionDataset(m=m, d=d, num_samples=training_samples, device=device)
-    training_dataloader = DataLoader(training_dataset, batch_size=2, shuffle=True)
+    training_dataloader = DataLoader(training_dataset, batch_size=1, shuffle=True)
     
     # Initialize the LearnedUpdate module with a fixed rho (e.g., 0.99)
-    learned_update = LearnedUpdate(d, q=0, rho=0.99, hidden_sizes=[256, 256, 256]).to(device)
+    learned_update = LearnedUpdate(d, q=0, rho=0.99, hidden_sizes=[256, 256, 256], architecture='lstm').to(device)
     print(f"Total parameters in LearnedUpdate: {sum(p.numel() for p in learned_update.parameters() if p.requires_grad)}")
 
     # Meta optimizer (updates both the MLP and the alpha parameters)
     meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-3)
 
-    learned_update = meta_training(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=100)
+    learned_update = meta_training(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=500)
 
     # # Save the trained learned optimizer parameters
     # directory_path = './models/'
