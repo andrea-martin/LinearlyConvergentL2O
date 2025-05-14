@@ -13,6 +13,7 @@ import glob
 
 from src.models import LearnedUpdate
 from src.meta_training import meta_training 
+from src.meta_training_nag import meta_training_nag
 from src.evaluate import evaluate
 
 from utils.datasets import LinearRegressionDataset
@@ -101,7 +102,7 @@ def main():
     # Meta optimizer (updates both the MLP and the alpha parameters)
     meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-3)
 
-    learned_update = meta_training(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=500)
+    learned_update = meta_training_nag(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=500)
 
     # # Save the trained learned optimizer parameters
     # directory_path = './models/'
