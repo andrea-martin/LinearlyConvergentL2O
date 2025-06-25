@@ -26,6 +26,6 @@ class LinearRegressionDataset(Dataset):
         # binary_mask = (A != 0).int()
 
         # Generate b vector randomly
-        b = 0.5 * torch.ones(self.m, device=self.device) + 0.25 * torch.rand(self.m, device=self.device)
+        b = 0.5 * torch.ones(self.m, device=self.device) + 0.2 * torch.randn(self.m, device=self.device)
 
         return b

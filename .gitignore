@@ -1,6 +1,6 @@
 # Ignore virtual environment folder
 .venv/
 .vscode/
-models/
+trained_models/
 src/__pycache__/
 utils/__pycache__/

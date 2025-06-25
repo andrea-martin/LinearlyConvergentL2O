@@ -51,11 +51,13 @@ def meta_training_nag(model, A, x0, dataloader, meta_optimizer, T, device, epoch
             
             # Prepare inputs for the learned update:
             # loss_val = loss_batch.view(1, 1)  # shape: (1, 1)
-            v_t_batch = model(x_batch, loss_batch, grad_y_batch, t)
+            if t < 10000: # All the times, other time we use 200
+                v_t_batch = model(x_batch, loss_batch, grad_y_batch, t)
 
-            x_batch_new = y_batch - eta * grad_y_batch + v_t_batch.unsqueeze(-1)
-            
-            
+                x_batch_new = y_batch - eta * grad_y_batch + v_t_batch.unsqueeze(-1)
+            else:    
+                x_batch_new = y_batch - eta * grad_y_batch
+
             x_batch_prev = x_batch.clone()
             x_batch = x_batch_new
 
@@ -64,8 +66,8 @@ def meta_training_nag(model, A, x0, dataloader, meta_optimizer, T, device, epoch
 
         print_every = 1
         if epoch == 0 or (epoch + 1) % print_every == 0:
-            print(f"Epoch {epoch+1} - average meta loss: {(meta_loss / (T*batch_size)).item():.2f}")
-        
+            print(f"Epoch {epoch+1} / {epochs} - average meta loss: {(meta_loss / (T*batch_size)).item():.2f}")
+
         meta_loss.backward()
         meta_optimizer.step()
 
