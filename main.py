@@ -80,10 +80,10 @@ def main():
     # The task is to minimize f(x) = ||Ax - b||², with gradient ∇f(x) = 2 Aᵀ (Ax - b)
     # -----------------------------------------------------------------------------
     # A = load_sparse_matrix_from_ssget("685_bus")
-    A = load_sparse_matrix_from_ssget("bcsstk02")
+    # A = load_sparse_matrix_from_ssget("bcsstk02")
     # A = load_sparse_matrix_from_ssget("bcsstk09")
     # A = load_sparse_matrix_from_ssget("1138_bus")
-    # A = load_sparse_matrix_from_ssget("msc01440")
+    A = load_sparse_matrix_from_ssget("msc01440")
     # A = load_sparse_matrix_from_ssget("Trefethen_20b")
     # A = load_sparse_matrix_from_ssget("Journals")
     A = torch.tensor(A.toarray(), dtype=torch.float32, device=device)
