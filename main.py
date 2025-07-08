@@ -80,17 +80,15 @@ def main():
     # The task is to minimize f(x) = ||Ax - b||², with gradient ∇f(x) = 2 Aᵀ (Ax - b)
     # -----------------------------------------------------------------------------
     # A = load_sparse_matrix_from_ssget("685_bus")
-    # A = load_sparse_matrix_from_ssget("bcsstk02")
+    A = load_sparse_matrix_from_ssget("bcsstk02")
     # A = load_sparse_matrix_from_ssget("bcsstk09")
     # A = load_sparse_matrix_from_ssget("1138_bus")
-    A = load_sparse_matrix_from_ssget("msc01440")
+    # A = load_sparse_matrix_from_ssget("msc01440")
     # A = load_sparse_matrix_from_ssget("Trefethen_20b")
     # A = load_sparse_matrix_from_ssget("Journals")
     A = torch.tensor(A.toarray(), dtype=torch.float32, device=device)
 
-    # temp = A.T @ A
-    # sns.heatmap(temp.numpy(), annot=False, cmap='coolwarm', cbar=True, xticklabels=False, yticklabels=False)
-
+    sns.heatmap(A.numpy(), annot=True, cmap='coolwarm')  # annot=True adds numbers
 
 
     m = A.shape[0] # Number of rows in matrix A (dimension of output vector b)
@@ -99,18 +97,18 @@ def main():
     x0 = 1e-4 * torch.rand(d, 1, device=device) # Initial parameter vector   
 
     training_samples = 1024 # Number of linear regression tasks to sample for training
-    T = 10000  # Number of iterations for the inner loop 
+    T = 50000  # Number of iterations for the inner loop 
     epochs = 50 # Number of epochs for meta-training  
 
     # Instantiate the training dataset and dataloader
     training_dataset = LinearRegressionDataset(m=m, d=d, num_samples=training_samples, device=device)
     training_dataloader = DataLoader(training_dataset, batch_size=32, shuffle=True)
     
-    load = False
+    load = True
     if load:
         # Load the pre-trained learned optimizer parameters
         directory_path = './trained_models/'
-        file_path = os.path.join(directory_path, 'bcsstk02_nag_50epochs_10000T_rho95_02randn.pt')
+        file_path = os.path.join(directory_path, 'bcsstk02_nag_50epochs_10000T200_rho95_02randn.pt')
         if os.path.exists(file_path):
             print(f"Loading pre-trained learned optimizer from {file_path}")
             learned_update = LearnedUpdate(d, q=0, rho=0.95, hidden_sizes=[256, 256, 256], architecture='lstm').to(device)

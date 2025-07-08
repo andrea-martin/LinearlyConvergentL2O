@@ -90,7 +90,7 @@ class LearnedUpdate(nn.Module):
         """
         super(LearnedUpdate, self).__init__()
         # The MLP takes a vector of size 2*d + 1 ([x, f(x), grad f(x)]) and outputs a vector of size d.
-        # self.mlp = SimpleMLP(input_size=2 * d + 1, hidden_sizes=hidden_sizes, output_size=d)
+        self.mlp = SimpleMLP(input_size=2 * d + 1, hidden_sizes=hidden_sizes, output_size=d)
         
         self.lstm = TwoLayerLSTM(input_sz=2*d+1, output_sz=d, hidden_sz=20) 
         
@@ -131,7 +131,7 @@ class LearnedUpdate(nn.Module):
 
             # Stack scaled inputs and pass through MLP
             input_vec = torch.vstack([x_scaled, loss_scaled, grad_scaled])  # Shape: (2d+1, 1)
-            # mlp_output = torch.tanh(self.mlp(input_vec.squeeze(-1)))  # Shape: (d,)
+            mlp_output = torch.tanh(self.mlp(input_vec.squeeze(-1)))  # Shape: (d,)
 
             # lstm_output, (self.lstm.hidden1, self.lstm.cell1), (self.lstm.hidden2, self.lstm.cell2) = self.lstm.forward(input_vec.T, self.lstm.hidden1, self.lstm.cell1, self.lstm.hidden2, self.lstm.cell2)  # Shape: (1, d)
             # lstm_output = torch.tanh(lstm_output).squeeze(0)
@@ -164,8 +164,7 @@ class LearnedUpdate(nn.Module):
             if self.architecture == 'lstm':
                 output = lstm_output * alpha_x
             else:
-                pass
-                # output = mlp_output * alpha_x  # Rescale using alpha_x (assuming x is the dominant feature)
+                output = mlp_output * alpha_x  # Rescale using alpha_x (assuming x is the dominant feature)
 
             results.append(output) 
 
