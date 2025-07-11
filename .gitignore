@@ -4,3 +4,4 @@
 trained_models/
 src/__pycache__/
 utils/__pycache__/
+trained_mpc_solvers/

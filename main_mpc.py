@@ -18,7 +18,7 @@ class LinearDynamicalSystem:
         self.B = B.to(device)
         self.n = self.A.shape[0]
         self.m = self.B.shape[1]
-        self.x = x0.to(device) if x0 is not None else torch.zeros((self.n,), device=device)
+        self.x = x0.to(device) if x0 is not None else torch.zeros((self.n, 1), device=device)
         self.device = device
 
     def step(self, u):
@@ -98,6 +98,22 @@ class FiniteHorizonOCP:
         x = self.F @ self.sys.x + self.G @ U
         return x.mT @ self.Q @ x + U.mT @ self.R @ U
     
+    def generate_qp(self, x0):
+        Q = self.H
+        c = (2 * x0.mT @ self.F.mT @ self.Q @ self.G).mT
+        q = x0.mT @ self.F.mT @ self.Q @ self.F @ x0
+
+        A = torch.vstack([
+            torch.eye(self.T * self.sys.m, self.T * self.sys.m, device=self.device),
+            -torch.eye(self.T * self.sys.m, self.T * self.sys.m, device=self.device)
+        ])
+        b = torch.vstack([
+            0.75 * torch.ones(self.T * self.sys.m, 1, device=self.device),
+            0.75 * torch.ones(self.T * self.sys.m, 1, device=self.device)
+        ])
+
+        return Q, c, q, A, b
+    
 class ModelPredictiveControlDataset(Dataset):
     """
     Generates quadratic optimization problems of the form:
@@ -114,22 +130,8 @@ class ModelPredictiveControlDataset(Dataset):
 
     def __getitem__(self, idx):
         x0 = 1 * (torch.rand(self.ocp.sys.n, 1, device=self.device) - 0.5) #+ torch.ones(self.ocp.sys.n, 1, device=self.device)
-
-        Q = self.ocp.H
-        c = (2 * x0.mT @ self.ocp.F.mT @ self.ocp.Q @ self.ocp.G).mT
-        q = x0.mT @ self.ocp.F.mT @ self.ocp.Q @ self.ocp.F @ x0
-
-        A = torch.vstack([
-            torch.eye(self.ocp.T * self.ocp.sys.m, self.ocp.T * self.ocp.sys.m, device=self.device),
-            -torch.eye(self.ocp.T * self.ocp.sys.m, self.ocp.T * self.ocp.sys.m, device=self.device)
-        ])
-        b = torch.vstack([
-            0.75 * torch.ones(self.ocp.T * self.ocp.sys.m, 1, device=self.device),
-            0.75 * torch.ones(self.ocp.T * self.ocp.sys.m, 1, device=self.device)
-        ])
-
-        return Q, c, q, A, b
-
+        return self.ocp.generate_qp(x0)
+    
 class TwoLayerLSTM(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, device=torch.device('cpu')):
         super().__init__()
@@ -289,49 +291,74 @@ def l2o_descent(U0, model, g, l, project, A, b, iterations, step_size):
         J.append(l(U[-1]))
     return torch.cat(U, dim=1), torch.cat(J, dim=1)
 
+def run_mpc_loop_gd(ocp, eta_gd, max_iterations, control_horizon):
+    X = [ocp.sys.x]
+    for t in range(control_horizon):
+        # print(f"Current state at time {t}: {ocp.sys.x.squeeze().cpu().numpy()}")
+        Q, c, q, A, b = ocp.generate_qp(ocp.sys.x)
+        U = torch.zeros((1, ocp.sys.m * ocp.T, 1), device=device)
+
+        g = lambda U: Q @ U + c
+        l = lambda U: 0.5 * U.mT @ Q @ U + c.mT @ U + q
+        
+        U, J = gradient_descent(U, g, l, iterations=max_iterations, step_size=eta_gd)
+        U = U[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
+        # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
+        ocp.sys.step(U)
+
+        X.append(ocp.sys.x)
+
+    return torch.cat(X, dim=1)
+
+def run_mpc_loop_pgd(ocp, eta_pgd, max_iterations, control_horizon):
+    X = [ocp.sys.x]
+    U = []
+    for t in range(control_horizon):
+        # print(f"Current state at time {t}: {ocp.sys.x.squeeze().cpu().numpy()}")
+        Q, c, q, A, b = ocp.generate_qp(ocp.sys.x)
+        u = torch.zeros((1, ocp.sys.m * ocp.T, 1), device=device)
+        g = lambda U: Q @ U + c
+        l = lambda U: 0.5 * U.mT @ Q @ U + c.mT @ U + q
+        project = lambda U: torch.clamp(U, min=-0.75, max=0.75)
+
+        u, J = projected_gradient_descent(u, g, l, project, iterations=max_iterations, step_size=eta_pgd)
+        u = u[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
+        # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
+        ocp.sys.step(u)
+
+        X.append(ocp.sys.x)
+        U.append(u)
+
+    return torch.cat(X, dim=1), torch.cat(U, dim=1)
+
+def run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations, control_horizon):
+    X = [ocp.sys.x]
+    U = []
+    for t in range(control_horizon):
+        # print(f"Current state at time {t}: {ocp.sys.x.squeeze().cpu().numpy()}")
+        Q, c, q, A, b = ocp.generate_qp(ocp.sys.x)
+        Q, c, q, A, b = Q.unsqueeze(0), c.unsqueeze(0), q.unsqueeze(0), A.unsqueeze(0), b.unsqueeze(0)  # Add batch dimension for compatibility
+        u = torch.zeros((1, ocp.sys.m * ocp.T, 1), device=device)
+        g = lambda U: Q @ U + c
+        l = lambda U: 0.5 * U.mT @ Q @ U + c.mT @ U + q
+        project = lambda U: torch.clamp(U, min=-0.75, max=0.75)
+
+        u, J = l2o_descent(u, learned_update, g, l, project, A, b, iterations=max_iterations, step_size=eta_pgd)
+        u = u[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
+        # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
+        ocp.sys.step(u)
+
+        X.append(ocp.sys.x)
+        U.append(u)
+
+    return torch.cat(X, dim=1), torch.cat(U, dim=1)
+
 def main():
-
-    # A = torch.rand(1000, 200) -0.5
-    # b = torch.rand(1000, 1) -0.5
-    # x = torch.rand(200,) -0.5
-    # agmon_relaxation_torch(A, b, x, max_iters=1000)
-
-    # torch.manual_seed(0)
-    # m, n = 1000, 200
-    # # create a random feasible system A x <= b
-    # A = torch.randn(m, n, requires_grad=True)
-    # x_true = torch.randn(n)
-    # slack = torch.rand(m) * 0.5 + 0.1
-    # b = A.matmul(x_true) + slack
-    # # initial guess
-    # x = torch.zeros(n, requires_grad=True)
-    # x_final = agmon_projection(A, b, x, max_iters=1000)
-
-    # # use the final violation as a toy loss and backprop
-    # loss = violations[-1]
-    # loss.backward()
-
-    # print(f"Initial violation: {violations[0].item():.3e}")
-    # print(f"Final violation:   {violations[-1].item():.3e}")
-    # print(f"∥∂loss/∂x0∥ = {x.grad.norm().item():.3e}")
-    # print(f"∥∂loss/∂A∥  = {A.grad.norm().item():.3e}")
-
-    # # plot convergence
-    # plt.semilogy(torch.arange(1, violations.size(0)+1).numpy(),
-    #              violations.detach().cpu().numpy(),
-    #              marker='o', linestyle='-')
-    # plt.xlabel("Iteration")
-    # plt.ylabel("Max Violation")
-    # plt.title("Agmon Relaxation Convergence (PyTorch)")
-    # plt.grid(True, which='both', ls='--', lw=0.5)
-    # plt.tight_layout()
-    # plt.show()
-
-
-
+    # Initialize the linear dynamical system
     A = torch.tensor([[1.0, 1.0], [0.0, 1.0]], device=device)
     B = torch.tensor([[0.0], [1.0]], device=device)
-    sys = LinearDynamicalSystem(A, B, x0=None, device=device)
+    x0 = (torch.rand(A.shape[0], 1, device=device) - 0.5)
+    sys = LinearDynamicalSystem(A, B, x0=x0, device=device)
 
     Qt = torch.eye(2, 2, device=device)
     Qf = torch.eye(2, 2, device=device)
@@ -348,43 +375,156 @@ def main():
     eta_nag, mu_nag = 1 / ocp.lambda_max_H, (np.sqrt(kappa) - 1) / (np.sqrt(kappa) + 1) # Popular tuning for NAG
     # eta_gd = 2 / (ocp.lambda_max_H + ocp.lambda_min_H)  # Optimal tuning for GD
     # eta_nag, mu_nag = 4 / (3 * ocp.lambda_max_H + ocp.lambda_min_H), (np.sqrt(3 * kappa + 1) - 2) / (np.sqrt(3 * kappa + 1) + 2)  # Optimal tuning for NAG
-    
+
     max_iterations = 100
+    perform_meta_training = False
 
-    training_samples, training_batch_size = 2048, 64
-    training_dataset = ModelPredictiveControlDataset(ocp, num_samples=training_samples)
-    training_dataloader = DataLoader(training_dataset, batch_size=training_batch_size, shuffle=True)
+    if perform_meta_training:
 
-    epochs = 100  # Number of epochs for meta-training
-    U0b = torch.zeros((training_batch_size, sys.m * T, 1), device=device)
+        training_samples, training_batch_size = 2048, 64
+        training_dataset = ModelPredictiveControlDataset(ocp, num_samples=training_samples)
+        training_dataloader = DataLoader(training_dataset, batch_size=training_batch_size, shuffle=True)
 
+        epochs = 100  # Number of epochs for meta-training
+        U0b = torch.zeros((training_batch_size, sys.m * T, 1), device=device)
 
+        learned_update = TwoLayerLSTMOptimizer(d=sys.m * T, m=0, gamma=0.95, device=device)
+        print(f"Total parameters in LearnedUpdate: {sum(p.numel() for p in learned_update.parameters() if p.requires_grad)}")
+        meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-2)
+        meta_training_mpc(model=learned_update, dataloader=training_dataloader, meta_optimizer=meta_optimizer, initial_guess=U0b, step_size=eta_pgd, max_iterations=max_iterations, epochs=epochs, device=device)
 
-    # flag = False
-    # for Qb, cb, qb, Ab, bb in training_dataloader:
+        # Save the trained learned optimizer parameters
+        directory_path = './trained_mpc_solvers/'
+        os.makedirs(directory_path, exist_ok=True)
+        file_path = os.path.join(directory_path, 'learned_optimizer.pt')
+        torch.save(learned_update.state_dict(), file_path)
+        print(f"Trained learned optimizer saved to {file_path}")
+    else:
+        print("Skipping meta-training. Using pre-trained learned optimizer.")
+        # Load the pre-trained learned optimizer parameters
+        directory_path = './trained_mpc_solvers/'
+        file_path = os.path.join(directory_path, 'learned_optimizer.pt')
+        if os.path.exists(file_path):
+            print(f"Loading pre-trained learned optimizer from {file_path}")
+            learned_update = TwoLayerLSTMOptimizer(d=sys.m * T, m=0, gamma=0.95, device=device)
+            learned_update.load_state_dict(torch.load(file_path))
+            print("Pre-trained learned optimizer loaded successfully.")
+        else:
+            print(f"Pre-trained model not found at {file_path}.")
 
-    #     gb = lambda U: Qb @ U + cb
-    #     lb = lambda U: 0.5 * U.mT @ Qb @ U + cb.mT @ U + qb
-        
-    #     # print(f"\nOptimal value of unconstrained optimization problem: {lb(-torch.linalg.inv(Qb) @ cb).item():.2f}")
-
-    #     Ub_gd, Jb_gd = gradient_descent(U0b.clone(), gb, lb, iterations=max_iterations, step_size=eta_gd)
-        
-    #     if not flag:
-    #         J_gd = Jb_gd
-    #         flag = True
-    #     else:
-    #         J_gd = torch.vstack([J_gd, Jb_gd])
-
-
-
-
-    learned_update = TwoLayerLSTMOptimizer(d=sys.m * T, m=0, gamma=0.95, device=device)
-    print(f"Total parameters in LearnedUpdate: {sum(p.numel() for p in learned_update.parameters() if p.requires_grad)}")
-    meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-2)
-    meta_training_mpc(model=learned_update, dataloader=training_dataloader, meta_optimizer=meta_optimizer, initial_guess=U0b, step_size=eta_pgd, max_iterations=max_iterations, epochs=epochs, device=device)
     learned_update.eval()
 
+
+    print("Starting MPC loop with different solvers...")
+    with torch.no_grad():
+        ocp_test = FiniteHorizonOCP(sys, Qt, Qf, Rt, 20)
+        n_iter = 20
+        cost_pgd_1 = torch.empty(n_iter, device=device)
+        cost_pgd_2 = torch.empty(n_iter, device=device)
+        cost_pgd_3 = torch.empty(n_iter, device=device)
+        cost_l2o_1 = torch.empty(n_iter, device=device)
+        cost_l2o_2 = torch.empty(n_iter, device=device)
+        cost_l2o_3 = torch.empty(n_iter, device=device)
+    
+        for i in range(n_iter):
+            x0 = (torch.rand(A.shape[0], 1, device=device) - 0.5)
+
+            ocp.sys.reset(x0)  # Reset the system state before running the MPC loop
+
+            # X_gd_1 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=3, control_horizon=20)
+            # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            # X_gd_2 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=30, control_horizon=20)
+            # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            # X_gd_3 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=300, control_horizon=20)
+            # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            # X_pgd_1, U_pgd_1 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=3, control_horizon=20)
+            # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            X_pgd_2, U_pgd_2 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=10, control_horizon=20)
+            ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            X_pgd_3, U_pgd_3 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=100, control_horizon=20)
+            ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            # X_l2o_1, U_l2o_1 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=3, control_horizon=20)
+            # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            X_l2o_2, U_l2o_2 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=10, control_horizon=20)
+            ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            X_l2o_3, U_l2o_3 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=100, control_horizon=20)
+            ocp.sys.reset(x0)  # Reset the system state for the next run
+
+            # cost_pgd_1[i] = ocp_test.cost(U_pgd_1.T).item()
+            cost_pgd_2[i] = ocp_test.cost(U_pgd_2.T).item()
+            cost_pgd_3[i] = ocp_test.cost(U_pgd_3.T).item()
+            # cost_l2o_1[i] = ocp_test.cost(U_l2o_1.T).item()
+            cost_l2o_2[i] = ocp_test.cost(U_l2o_2.T).item()
+            cost_l2o_3[i] = ocp_test.cost(U_l2o_3.T).item()
+        
+
+        print("Mean cost PGD (10 iters): {:.3f} | Variance of cost PGD (10 iters): {:.3f}".format(cost_pgd_2.mean().item(), cost_pgd_2.var().item()))
+        print("Mean cost L2O (10 iters): {:.3f} | Variance of cost L2O (10 iters): {:.3f}".format(cost_l2o_2.mean().item(), cost_l2o_2.var().item()))
+        
+        print("Mean cost PGD (100 iters): {:.3f} | Variance of cost PGD (100 iters): {:.3f}".format(cost_pgd_3.mean().item(), cost_pgd_3.var().item()))
+        print("Mean cost L2O (100 iters): {:.3f} | Variance of cost L2O (100 iters): {:.3f}".format(cost_l2o_3.mean().item(), cost_l2o_3.var().item()))
+            # print(ocp_test.cost(U_pgd_1.T).item(), ocp_test.cost(U_pgd_2.T).item(), ocp_test.cost(U_pgd_3.T).item())
+            # print(ocp_test.cost(U_l2o_1.T).item(), ocp_test.cost(U_l2o_2.T).item(), ocp_test.cost(U_l2o_3.T).item())
+
+
+        # plt.figure()
+        # # # plt.plot(range(21), X_gd_1[0,:].cpu().numpy())
+        # # # plt.plot(range(21), X_gd_2[0,:].cpu().numpy())
+        # # # plt.plot(range(21), X_gd_3[0,:].cpu().numpy())
+
+        # # # plt.plot(range(21), X_gd_1[1,:].cpu().numpy())
+        # # # plt.plot(range(21), X_gd_2[1,:].cpu().numpy())
+        # # # plt.plot(range(21), X_gd_3[1,:].cpu().numpy())
+
+        # # plt.plot(range(21), X_pgd_1[0,:].cpu().numpy())
+        # plt.plot(range(21), X_pgd_2[0,:].cpu().numpy())
+        # plt.plot(range(21), X_pgd_3[0,:].cpu().numpy())
+
+        # # # plt.plot(range(21), X_pgd_1[1,:].cpu().numpy())
+        
+        # # plt.plot(range(21), X_l2o_1[0,:].cpu().numpy())
+        # plt.plot(range(21), X_l2o_2[0,:].cpu().numpy())
+        # plt.plot(range(21), X_l2o_3[0,:].cpu().numpy())
+
+        # plt.legend(['x1 (PGD 30 iters)', 'x1 (PGD 300 iters)', 'x1 (L2O 30 iters)', 'x1 (L2O 300 iters)'])
+
+        # plt.figure()
+        # plt.plot(range(21), X_pgd_2[1,:].cpu().numpy())
+        # plt.plot(range(21), X_pgd_3[1,:].cpu().numpy())
+        
+        # # plt.plot(range(21), X_l2o_1[1,:].cpu().numpy())
+        # plt.plot(range(21), X_l2o_2[1,:].cpu().numpy())
+        # plt.plot(range(21), X_l2o_3[1,:].cpu().numpy())
+
+        # plt.legend(['x2 (PGD 30 iters)', 'x2 (PGD 300 iters)', 'x2 (L2O 30 iters)', 'x2 (L2O 300 iters)'])
+        # plt.show()
+
+        # plt.legend(['x1 (GD 3 iters)', 'x1 (GD 30 iters)', 'x1 (GD 300 iters)', 'x2 (GD 3 iters)', 'x2 (GD 30 iters)', 'x2 (GD 300 iters)', 'x1 (PGD 3 iters)', 'x1 (PGD 30 iters)', 'x1 (PGD 300 iters)', 'x2 (PGD 3 iters)', 'x2 (PGD 30 iters)', 'x2 (PGD 300 iters)'])
+        
+
+
+
+
+
+
+
+
+    
+
+    
+
+
+
+    '''
+    # Test the learned optimizer on a batch of problems
     test_samples, test_batch_size = 256, 16
     test_dataset = ModelPredictiveControlDataset(ocp, num_samples=test_samples)
     test_dataloader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=True)
@@ -450,28 +590,6 @@ def main():
                     (J_l2o_mean - J_l2o_std).detach().numpy(),
                     (J_l2o_mean + J_l2o_std).detach().numpy(),
                     alpha=0.3)
-    
-    # plt.plot(range(max_iterations), J_gd_mean[1:], label="Gradient Descent")
-    # plt.fill_between(range(max_iterations),
-    #                 (J_gd_mean[1:] - J_gd_std[1:]).numpy(),
-    #                 (J_gd_mean[1:] + J_gd_std[1:]).numpy(),
-    #                 alpha=0.3)
-    # plt.plot(range(max_iterations), J_pgd_mean[1:], label="Projected Gradient Descent")
-    # plt.fill_between(range(max_iterations),
-    #                 (J_pgd_mean[1:] - J_pgd_std[1:]).numpy(),
-    #                 (J_pgd_mean[1:] + J_pgd_std[1:]).numpy(),
-    #                 alpha=0.3)
-    # plt.plot(range(max_iterations), J_nag_mean[1:], label="Nesterov Accelerated Gradient Descent")
-    # plt.fill_between(range(max_iterations),
-    #                 (J_nag_mean[1:] - J_nag_std[1:]).numpy(),
-    #                 (J_nag_mean[1:] + J_nag_std[1:]).numpy(),
-    #                 alpha=0.3)
-    # plt.plot(range(max_iterations), J_l2o_mean[1:].detach(), label="Learned Optimizer")
-    # plt.fill_between(range(max_iterations),
-    #                 (J_l2o_mean[1:] - J_l2o_std[1:]).detach().numpy(),
-    #                 (J_l2o_mean[1:] + J_l2o_std[1:]).detach().numpy(),
-    #                 alpha=0.3)
-
     plt.legend()
     plt.grid(True)
 
@@ -483,56 +601,9 @@ def main():
     # plt.grid(True)
     # plt.title("Control Input Trajectories")
     plt.show()
+    '''
 
     print(f"That's all folks!")
-    # m = A.shape[0] # Number of rows in matrix A (dimension of output vector b)
-    # d = A.shape[1] # Number of columns in matrix A (dimension of parameter vector x)
-
-    # x0 = 1e-4 * torch.rand(d, 1, device=device) # Initial parameter vector   
-
-    # training_samples = 1024 # Number of linear regression tasks to sample for training
-    # T = 50000  # Number of iterations for the inner loop 
-    # epochs = 50 # Number of epochs for meta-training  
-
-    # # Instantiate the training dataset and dataloader
-    # training_dataset = LinearRegressionDataset(m=m, d=d, num_samples=training_samples, device=device)
-    # training_dataloader = DataLoader(training_dataset, batch_size=32, shuffle=True)
-    
-    # load = True
-    # if load:
-    #     # Load the pre-trained learned optimizer parameters
-    #     directory_path = './trained_models/'
-    #     file_path = os.path.join(directory_path, 'bcsstk02_nag_50epochs_10000T200_rho95_02randn.pt')
-    #     if os.path.exists(file_path):
-    #         print(f"Loading pre-trained learned optimizer from {file_path}")
-    #         learned_update = LearnedUpdate(d, q=0, rho=0.95, hidden_sizes=[256, 256, 256], architecture='lstm').to(device)
-    #         learned_update.load_state_dict(torch.load(file_path))
-    #         print("Pre-trained learned optimizer loaded successfully.")
-    #     else:
-    #         print(f"Pre-trained model not found at {file_path}.")
-    # else:
-    #     # Initialize the LearnedUpdate module with a fixed rho (e.g., 0.99)
-    #     learned_update = LearnedUpdate(d, q=0, rho=0.95, hidden_sizes=[256, 256, 256], architecture='lstm').to(device)
-    #     print(f"Total parameters in LearnedUpdate: {sum(p.numel() for p in learned_update.parameters() if p.requires_grad)}")
-
-    #     # Meta optimizer (updates both the MLP and the alpha parameters)
-    #     meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-3)
-
-    #     learned_update = meta_training_nag(learned_update, A, x0, training_dataloader, meta_optimizer, T, device, epochs=epochs)
-    #     # Save the trained learned optimizer parameters
-    #     directory_path = './trained_models/'
-    #     os.makedirs(directory_path, exist_ok=True)
-    #     file_path = os.path.join(directory_path, 'bcsstk02_nag_50epochs_10000T200_rho95_02randn.pt')
-    #     torch.save(learned_update.state_dict(), file_path)
-    #     print(f"Trained learned optimizer saved to {file_path}")
-
-    # test_samples = 128 # Number of linear regression tasks to sample for testing
-    # # Instantiate the test dataset and dataloader
-    # test_dataset = LinearRegressionDataset(m=m, d=d, num_samples=test_samples, device=device)
-    # test_dataloader = DataLoader(test_dataset, batch_size=16, shuffle=True)
-
-    # # Evaluate the learned optimizer
-    # evaluate_nag(learned_update, A, x0, test_dataloader, T, device)
-
+ 
 if __name__ == "__main__":
     main()
