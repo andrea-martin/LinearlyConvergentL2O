@@ -464,18 +464,29 @@ def main():
             control_horizon = 30  # Control horizon for the MPC loop
             ocp_test = FiniteHorizonOCP(sys, Qt, Qf, Rt, control_horizon)
             n_iter = 100
+            cost_pgd_a = torch.empty(n_iter, device=device)
+            cost_pgd_b = torch.empty(n_iter, device=device)
+            cost_pgd_c = torch.empty(n_iter, device=device)
+            cost_pgd_0 = torch.empty(n_iter, device=device)
             cost_pgd_1 = torch.empty(n_iter, device=device)
             cost_pgd_2 = torch.empty(n_iter, device=device)
             cost_pgd_3 = torch.empty(n_iter, device=device)
             cost_pgd_4 = torch.empty(n_iter, device=device)
             cost_pgd_5 = torch.empty(n_iter, device=device)
-            cost_pgd_6 = torch.empty(n_iter, device=device) 
+            cost_pgd_6 = torch.empty(n_iter, device=device)
+            cost_pgd_7 = torch.empty(n_iter, device=device)
+
+            cost_l2o_a = torch.empty(n_iter, device=device)
+            cost_l2o_b = torch.empty(n_iter, device=device)
+            cost_l2o_c = torch.empty(n_iter, device=device)
+            cost_l2o_0 = torch.empty(n_iter, device=device) 
             cost_l2o_1 = torch.empty(n_iter, device=device)
             cost_l2o_2 = torch.empty(n_iter, device=device)
             cost_l2o_3 = torch.empty(n_iter, device=device)
             cost_l2o_4 = torch.empty(n_iter, device=device)
             cost_l2o_5 = torch.empty(n_iter, device=device)
             cost_l2o_6 = torch.empty(n_iter, device=device)
+            cost_l2o_7 = torch.empty(n_iter, device=device)
         
             for i in range(n_iter):
                 # x0 = 2 * (torch.rand(A.shape[0], 1, device=device) - 0.5)
@@ -492,6 +503,18 @@ def main():
                 # X_gd_3 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=300, control_horizon=20)
                 # ocp.sys.reset(x0)  # Reset the system state for the next run
 
+                X_pgd_a, U_pgd_a = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=0, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_b, U_pgd_b = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=1, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_c, U_pgd_c = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=2, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_0, U_pgd_0 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=3, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
                 X_pgd_1, U_pgd_1 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=5, control_horizon=control_horizon)
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
@@ -499,6 +522,31 @@ def main():
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
                 X_pgd_3, U_pgd_3 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=20, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_4, U_pgd_4 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=30, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_5, U_pgd_5 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=50, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_6, U_pgd_6 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=75, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_7, U_pgd_7 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=100, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+
+                X_l2o_a, U_l2o_a = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=0, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_b, U_l2o_b = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=1, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_c, U_l2o_c = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=2, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_0, U_l2o_0 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=3, control_horizon=control_horizon)
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
                 X_l2o_1, U_l2o_1 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=5, control_horizon=control_horizon)
@@ -510,59 +558,76 @@ def main():
                 X_l2o_3, U_l2o_3 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=20, control_horizon=control_horizon)
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
-                X_pgd_4, U_pgd_4 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=30, control_horizon=control_horizon)
-                ocp.sys.reset(x0)  # Reset the system state for the next run
-
-                X_pgd_5, U_pgd_5 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=50, control_horizon=control_horizon)
-                ocp.sys.reset(x0)  # Reset the system state for the next run
-
-                X_pgd_6, U_pgd_6 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=100, control_horizon=control_horizon)
-                ocp.sys.reset(x0)  # Reset the system state for the next run
-
-
                 X_l2o_4, U_l2o_4 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=30, control_horizon=control_horizon)
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
                 X_l2o_5, U_l2o_5 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=50, control_horizon=control_horizon)
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
-                X_l2o_6, U_l2o_6 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=100, control_horizon=control_horizon)
+                X_l2o_6, U_l2o_6 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=75, control_horizon=control_horizon)
                 ocp.sys.reset(x0)  # Reset the system state for the next run
 
+                X_l2o_7, U_l2o_7 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=100, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                cost_pgd_a[i] = ocp_test.cost(U_pgd_a.T).item()
+                cost_pgd_b[i] = ocp_test.cost(U_pgd_b.T).item()
+                cost_pgd_c[i] = ocp_test.cost(U_pgd_c.T).item()
+                cost_pgd_0[i] = ocp_test.cost(U_pgd_0.T).item()
                 cost_pgd_1[i] = ocp_test.cost(U_pgd_1.T).item()
                 cost_pgd_2[i] = ocp_test.cost(U_pgd_2.T).item()
                 cost_pgd_3[i] = ocp_test.cost(U_pgd_3.T).item()
                 cost_pgd_4[i] = ocp_test.cost(U_pgd_4.T).item()
                 cost_pgd_5[i] = ocp_test.cost(U_pgd_5.T).item()
                 cost_pgd_6[i] = ocp_test.cost(U_pgd_6.T).item()
+                cost_pgd_7[i] = ocp_test.cost(U_pgd_7.T).item()
 
+                cost_l2o_a[i] = ocp_test.cost(U_l2o_a.T).item()
+                cost_l2o_b[i] = ocp_test.cost(U_l2o_b.T).item()
+                cost_l2o_c[i] = ocp_test.cost(U_l2o_c.T).item()
+                cost_l2o_0[i] = ocp_test.cost(U_l2o_0.T).item()
                 cost_l2o_1[i] = ocp_test.cost(U_l2o_1.T).item()
                 cost_l2o_2[i] = ocp_test.cost(U_l2o_2.T).item()
                 cost_l2o_3[i] = ocp_test.cost(U_l2o_3.T).item()
                 cost_l2o_4[i] = ocp_test.cost(U_l2o_4.T).item()
                 cost_l2o_5[i] = ocp_test.cost(U_l2o_5.T).item()
                 cost_l2o_6[i] = ocp_test.cost(U_l2o_6.T).item()
+                cost_l2o_7[i] = ocp_test.cost(U_l2o_7.T).item()
 
-        print("Mean cost PGD (5 iters): {:.2f} | Variance of cost PGD (5 iters): {:.2f}".format(cost_pgd_1.mean().item(), cost_pgd_1.var().item()))
-        print("Mean cost L2O (5 iters): {:.2f} | Variance of cost L2O (5 iters): {:.2f}".format(cost_l2o_1.mean().item(), cost_l2o_1.var().item()))
+        # print("Mean cost PGD (3 iters): {:.2f} | Variance of cost PGD (3 iters): {:.2f}".format(cost_pgd_0.mean().item(), cost_pgd_0.var().item()))
+        # print("Mean cost L2O (3 iters): {:.2f} | Variance of cost L2O (3 iters): {:.2f}".format(cost_l2o_0.mean().item(), cost_l2o_0.var().item()))
 
-        print("Mean cost PGD (10 iters): {:.2f} | Variance of cost PGD (10 iters): {:.2f}".format(cost_pgd_2.mean().item(), cost_pgd_2.var().item()))
-        print("Mean cost L2O (10 iters): {:.2f} | Variance of cost L2O (10 iters): {:.2f}".format(cost_l2o_2.mean().item(), cost_l2o_2.var().item()))
+        # print("Mean cost PGD (5 iters): {:.2f} | Variance of cost PGD (5 iters): {:.2f}".format(cost_pgd_1.mean().item(), cost_pgd_1.var().item()))
+        # print("Mean cost L2O (5 iters): {:.2f} | Variance of cost L2O (5 iters): {:.2f}".format(cost_l2o_1.mean().item(), cost_l2o_1.var().item()))
+
+        # print("Mean cost PGD (10 iters): {:.2f} | Variance of cost PGD (10 iters): {:.2f}".format(cost_pgd_2.mean().item(), cost_pgd_2.var().item()))
+        # print("Mean cost L2O (10 iters): {:.2f} | Variance of cost L2O (10 iters): {:.2f}".format(cost_l2o_2.mean().item(), cost_l2o_2.var().item()))
         
-        print("Mean cost PGD (20 iters): {:.2f} | Variance of cost PGD (20 iters): {:.2f}".format(cost_pgd_3.mean().item(), cost_pgd_3.var().item()))
-        print("Mean cost L2O (20 iters): {:.2f} | Variance of cost L2O (20 iters): {:.2f}".format(cost_l2o_3.mean().item(), cost_l2o_3.var().item()))
+        # print("Mean cost PGD (20 iters): {:.2f} | Variance of cost PGD (20 iters): {:.2f}".format(cost_pgd_3.mean().item(), cost_pgd_3.var().item()))
+        # print("Mean cost L2O (20 iters): {:.2f} | Variance of cost L2O (20 iters): {:.2f}".format(cost_l2o_3.mean().item(), cost_l2o_3.var().item()))
         
-        print("Mean cost PGD (30 iters): {:.2f} | Variance of cost PGD (30 iters): {:.2f}".format(cost_pgd_4.mean().item(), cost_pgd_4.var().item()))
-        print("Mean cost L2O (30 iters): {:.2f} | Variance of cost L2O (30 iters): {:.2f}".format(cost_l2o_4.mean().item(), cost_l2o_4.var().item()))
+        # print("Mean cost PGD (30 iters): {:.2f} | Variance of cost PGD (30 iters): {:.2f}".format(cost_pgd_4.mean().item(), cost_pgd_4.var().item()))
+        # print("Mean cost L2O (30 iters): {:.2f} | Variance of cost L2O (30 iters): {:.2f}".format(cost_l2o_4.mean().item(), cost_l2o_4.var().item()))
 
-        print("Mean cost PGD (50 iters): {:.2f} | Variance of cost PGD (50 iters): {:.2f}".format(cost_pgd_5.mean().item(), cost_pgd_5.var().item()))   
-        print("Mean cost L2O (50 iters): {:.2f} | Variance of cost L2O (50 iters): {:.2f}".format(cost_l2o_5.mean().item(), cost_l2o_5.var().item()))
+        # print("Mean cost PGD (50 iters): {:.2f} | Variance of cost PGD (50 iters): {:.2f}".format(cost_pgd_5.mean().item(), cost_pgd_5.var().item()))   
+        # print("Mean cost L2O (50 iters): {:.2f} | Variance of cost L2O (50 iters): {:.2f}".format(cost_l2o_5.mean().item(), cost_l2o_5.var().item()))
 
-        print("Mean cost PGD (100 iters): {:.2f} | Variance of cost PGD (100 iters): {:.2f}".format(cost_pgd_6.mean().item(), cost_pgd_6.var().item()))   
-        print("Mean cost L2O (100 iters): {:.2f} | Variance of cost L2O (100 iters): {:.2f}".format(cost_l2o_6.mean().item(), cost_l2o_6.var().item()))
+        # print("Mean cost PGD (70 iters): {:.2f} | Variance of cost PGD (70 iters): {:.2f}".format(cost_pgd_6.mean().item(), cost_pgd_6.var().item()))   
+        # print("Mean cost L2O (70 iters): {:.2f} | Variance of cost L2O (70 iters): {:.2f}".format(cost_l2o_6.mean().item(), cost_l2o_6.var().item()))
+
+        # print("Mean cost PGD (100 iters): {:.2f} | Variance of cost PGD (100 iters): {:.2f}".format(cost_pgd_7.mean().item(), cost_pgd_7.var().item()))   
+        # print("Mean cost L2O (100 iters): {:.2f} | Variance of cost L2O (100 iters): {:.2f}".format(cost_l2o_7.mean().item(), cost_l2o_7.var().item()))
 
         # Save the data to a .npz file if it doesn't exist
         np.savez(data_file,
+                cost_pgd_a=cost_pgd_a.cpu().numpy(),
+                cost_l2o_a=cost_l2o_a.cpu().numpy(),
+                cost_pgd_b=cost_pgd_b.cpu().numpy(),
+                cost_l2o_b=cost_l2o_b.cpu().numpy(),
+                cost_pgd_c=cost_pgd_c.cpu().numpy(),
+                cost_l2o_c=cost_l2o_c.cpu().numpy(),
+                cost_pgd_0=cost_pgd_0.cpu().numpy(),
+                cost_l2o_0=cost_l2o_0.cpu().numpy(),
                 cost_pgd_1=cost_pgd_1.cpu().numpy(),
                 cost_l2o_1=cost_l2o_1.cpu().numpy(),
                 cost_pgd_2=cost_pgd_2.cpu().numpy(),
@@ -574,7 +639,9 @@ def main():
                 cost_pgd_5=cost_pgd_5.cpu().numpy(),
                 cost_l2o_5=cost_l2o_5.cpu().numpy(),
                 cost_pgd_6=cost_pgd_6.cpu().numpy(),
-                cost_l2o_6=cost_l2o_6.cpu().numpy())
+                cost_l2o_6=cost_l2o_6.cpu().numpy(),
+                cost_pgd_7=cost_pgd_7.cpu().numpy(),
+                cost_l2o_7=cost_l2o_7.cpu().numpy())
         print(f"Data saved to {data_file}")
 
 
@@ -594,6 +661,14 @@ def main():
 
     # Load the data from the .npz file
     data = np.load(data_file)
+    cost_pgd_a = data['cost_pgd_a']
+    cost_l2o_a = data['cost_l2o_a']
+    cost_pgd_b = data['cost_pgd_b']
+    cost_l2o_b = data['cost_l2o_b']
+    cost_pgd_c = data['cost_pgd_c']
+    cost_l2o_c = data['cost_l2o_c']
+    cost_pgd_0 = data['cost_pgd_0']
+    cost_l2o_0 = data['cost_l2o_0']
     cost_pgd_1 = data['cost_pgd_1']
     cost_l2o_1 = data['cost_l2o_1']
     cost_pgd_2 = data['cost_pgd_2']
@@ -606,14 +681,23 @@ def main():
     cost_l2o_5 = data['cost_l2o_5']
     cost_pgd_6 = data['cost_pgd_6']
     cost_l2o_6 = data['cost_l2o_6']
+    cost_pgd_7 = data['cost_pgd_7']
+    cost_l2o_7 = data['cost_l2o_7']
     print(f"Data loaded from {data_file}")
 
-    # Define positions for pairs: first for PGD (red) and second for L2O (green)
-    positions = [1, 1.4, 2, 2.4, 3, 3.4, 4, 4.4, 5, 5.4]
+    # Define positions for pairs:
+    # First three pairs: a, b, c; then pairs for 0, 5, 10, 20, 30, 50, and 100 iterations.
+    positions = [0, 0.4, 1, 1.4, 2, 2.4, 3, 3.4, 4, 4.4, 5, 5.4, 6, 6.4, 7, 7.4, 8, 8.4, 9, 9.4, 10, 10.4]
 
-    # Arrange data in the order: [PGD (5 iters), L2O (5 iters), PGD (10 iters), L2O (10 iters), PGD (20 iters), L2O (20 iters),
-    # PGD (30 iters), L2O (30 iters), PGD (50 iters), L2O (50 iters)]
-    data = [cost_pgd_1, cost_l2o_1, cost_pgd_2, cost_l2o_2, cost_pgd_3, cost_l2o_3, cost_pgd_4, cost_l2o_4, cost_pgd_5, cost_l2o_5, cost_pgd_6, cost_l2o_6]
+    # Arrange data in the order:
+    # [PGD (a), L2O (a), PGD (b), L2O (b), PGD (c), L2O (c),
+    #  PGD (0 iters), L2O (0 iters), PGD (5 iters), L2O (5 iters), PGD (10 iters), L2O (10 iters),
+    #  PGD (20 iters), L2O (20 iters), PGD (30 iters), L2O (30 iters), PGD (50 iters), L2O (50 iters),
+    #  PGD (100 iters), L2O (100 iters)]
+    data = [cost_pgd_a, cost_l2o_a, cost_pgd_b, cost_l2o_b, cost_pgd_c, cost_l2o_c,
+            cost_pgd_0, cost_l2o_0, cost_pgd_1, cost_l2o_1, cost_pgd_2, cost_l2o_2,
+            cost_pgd_3, cost_l2o_3, cost_pgd_4, cost_l2o_4, cost_pgd_5, cost_l2o_5,
+            cost_pgd_6, cost_l2o_6, cost_pgd_7, cost_l2o_7]
 
     # # First box plot with custom positions and colors, removing outlier markers
     # plt.figure(figsize=(8, 6))
@@ -641,60 +725,140 @@ def main():
     # plt.legend(handles=[red_patch, green_patch])
     # plt.tight_layout()
 
-    # New plot: average cost vs. iterations (5, 10, 20, 30, 50, 100) with mean and mean+std (dotted) lines
-    plt.figure(figsize=(8, 6))
-    x_vals = np.array([5, 10, 20, 30, 50, 100])
+    # New plot: average cost vs. iterations (0, 5, 10, 20, 30, 50, 100) with mean and mean+std (dotted) lines
+    plt.figure(figsize=(8, 4))
+    # x_vals = np.array([0, 1, 2, 3, 5, 10, 20, 30, 50, 75, 100])
+    x_vals = np.array([1, 5, 10, 20, 30, 50, 75, 100])
     
-    # PGD: compute mean and std for each iteration count, including 100 iterations
+    # PGD: compute mean and std for each iteration count, including 0 iterations
     pgd_means = np.array([
+        # np.mean(cost_pgd_a),
+        np.mean(cost_pgd_b),
+        # np.mean(cost_pgd_c),
+        # np.mean(cost_pgd_0),
         np.mean(cost_pgd_1),
         np.mean(cost_pgd_2),
         np.mean(cost_pgd_3),
         np.mean(cost_pgd_4),
         np.mean(cost_pgd_5),
-        np.mean(cost_pgd_6)
+        np.mean(cost_pgd_6),
+        np.mean(cost_pgd_7)
     ])
     pgd_stds = np.array([
+        # np.std(cost_pgd_a),
+        np.std(cost_pgd_b),
+        # np.std(cost_pgd_c),
+        # np.std(cost_pgd_0),
         np.std(cost_pgd_1),
         np.std(cost_pgd_2),
         np.std(cost_pgd_3),
         np.std(cost_pgd_4),
         np.std(cost_pgd_5),
-        np.std(cost_pgd_6)
+        np.std(cost_pgd_6),
+        np.std(cost_pgd_7)
     ])
     
-    # L2O: compute mean and std for each iteration count, including 100 iterations
+    # L2O: compute mean and std for each iteration count, including 0 iterations
     l2o_means = np.array([
+        # np.mean(cost_l2o_a),
+        np.mean(cost_l2o_b),
+        # np.mean(cost_l2o_c),
+        # np.mean(cost_l2o_0),
         np.mean(cost_l2o_1),
         np.mean(cost_l2o_2),
         np.mean(cost_l2o_3),
         np.mean(cost_l2o_4),
         np.mean(cost_l2o_5),
-        np.mean(cost_l2o_6)
+        np.mean(cost_l2o_6),
+        np.mean(cost_l2o_7)
     ])
     l2o_stds = np.array([
+        # np.std(cost_l2o_a),
+        np.std(cost_l2o_b),
+        # np.std(cost_l2o_c),
+        # np.std(cost_l2o_0),
         np.std(cost_l2o_1),
         np.std(cost_l2o_2),
         np.std(cost_l2o_3),
         np.std(cost_l2o_4),
         np.std(cost_l2o_5),
-        np.std(cost_l2o_6)
+        np.std(cost_l2o_6),
+        np.std(cost_l2o_7)
     ])
     
-    # Plot the mean cost interpolated linearly
-    plt.plot(x_vals, pgd_means, 'o-', color='red', label='PGD Mean')
-    plt.plot(x_vals, l2o_means, 'o-', color='green', label='L2O Mean')
+    # Plot the mean cost
+    plt.plot(x_vals, pgd_means, 'o-', color='red', label='Projected gradient descent')
+    plt.plot(x_vals, l2o_means, 'o-', color='green', label='Linearly convergent L2O')
     
-    # Plot dotted lines for mean + std
-    plt.plot(x_vals, pgd_means + pgd_stds, 'r--', label='PGD Mean+Std')
-    plt.plot(x_vals, l2o_means + l2o_stds, 'g--', label='L2O Mean+Std')
+    # Compute lower and upper quantiles (e.g., 10% and 90% quantiles)
+
+    upper_quantile = 0.8
+    pgd_lower = np.array([
+        np.quantile(cost_pgd_b, 0.1),
+        np.quantile(cost_pgd_1, 0.1),
+        np.quantile(cost_pgd_2, 0.1),
+        np.quantile(cost_pgd_3, 0.1),
+        np.quantile(cost_pgd_4, 0.1),
+        np.quantile(cost_pgd_5, 0.1),
+        np.quantile(cost_pgd_6, 0.1),
+        np.quantile(cost_pgd_7, 0.1)
+    ])
+    pgd_upper = np.array([
+        np.quantile(cost_pgd_b, upper_quantile),
+        np.quantile(cost_pgd_1, upper_quantile),
+        np.quantile(cost_pgd_2, upper_quantile),
+        np.quantile(cost_pgd_3, upper_quantile),
+        np.quantile(cost_pgd_4, upper_quantile),
+        np.quantile(cost_pgd_5, upper_quantile),
+        np.quantile(cost_pgd_6, upper_quantile),
+        np.quantile(cost_pgd_7, upper_quantile)
+    ])
+
+    l2o_lower = np.array([
+        np.quantile(cost_l2o_b, 0.1),
+        np.quantile(cost_l2o_1, 0.1),
+        np.quantile(cost_l2o_2, 0.1),
+        np.quantile(cost_l2o_3, 0.1),
+        np.quantile(cost_l2o_4, 0.1),
+        np.quantile(cost_l2o_5, 0.1),
+        np.quantile(cost_l2o_6, 0.1),
+        np.quantile(cost_l2o_7, 0.1)
+    ])
+    l2o_upper = np.array([
+        np.quantile(cost_l2o_b, upper_quantile),
+        np.quantile(cost_l2o_1, upper_quantile),
+        np.quantile(cost_l2o_2, upper_quantile),
+        np.quantile(cost_l2o_3, upper_quantile),
+        np.quantile(cost_l2o_4, upper_quantile),
+        np.quantile(cost_l2o_5, upper_quantile),
+        np.quantile(cost_l2o_6, upper_quantile),
+        np.quantile(cost_l2o_7, upper_quantile)
+    ])
+
+    # Plot filled areas for the quantile ranges
+    plt.fill_between(x_vals, pgd_lower, pgd_upper, color='red', alpha=0.1)
+    plt.fill_between(x_vals, l2o_lower, l2o_upper, color='green', alpha=0.1)
+
     
-    plt.xlabel("Iterations")
-    plt.ylabel("Average Cost")
-    plt.title("Average Cost vs. Iterations")
+    plt.xlabel("Number of optimization steps")
+    plt.ylabel("Closed-loop control cost")
+    # plt.title("Average Cost vs. Iterations")
     plt.yscale('log')  # Log scale for better visibility of differences
+    plt.ylim(bottom=1e1)
+    plt.xlim(left=1, right=100)  # Adjust x-axis limits to fit the data range
+    # Bring all line markers to the foreground so their full shape is visible ("in primo piano")
+    for line in plt.gca().get_lines():
+        line.set_clip_on(False)
+    # plt.xticks(x_vals, ['1', '5', '10', '20', '30', '50', '75', '100'])
     plt.legend()
     plt.tight_layout()
+    plt.minorticks_on()
+    plt.grid(True, which='major', linestyle='-', linewidth=0.5, color='gray')
+    plt.grid(True, which='minor', linestyle=':', linewidth=0.25, color='gray')
+    # plt.grid(which='major', color='gray', linestyle='-', linewidth=0.75)
+    # plt.grid(which='minor', color='gray', linestyle=':', linewidth=0.5)
+    plt.savefig('my_plot.png', bbox_inches='tight')
+    
     plt.show()
 
     # Second box plot using categorical labels
@@ -763,7 +927,7 @@ def main():
 
 
 
-    '''
+    ocp = FiniteHorizonOCP(sys, Qt, Qf, Rt, T)
     # Test the learned optimizer on a batch of problems
     test_samples, test_batch_size = 256, 16
     test_dataset = ModelPredictiveControlDataset(ocp, num_samples=test_samples)
@@ -776,63 +940,112 @@ def main():
 
         gb = lambda U: Qb @ U + cb
         lb = lambda U: 0.5 * U.mT @ Qb @ U + cb.mT @ U + qb
-        project = lambda U: torch.clamp(U, min=-5, max=5) # Project onto the box constraints
+        project = lambda U: torch.clamp(U, min=-.25, max=.25) # Project onto the box constraints
 
         # print(f"\nOptimal value of unconstrained optimization problem: {lb(-torch.linalg.inv(Qb) @ cb).item():.2f}")
 
-        Ub_gd, Jb_gd = gradient_descent(U0b.clone(), gb, lb, iterations=max_iterations, step_size=eta_gd)
-        Ub_nag, Jb_nag = nesterov_accelerated_gradient_descent(U0b.clone(), gb, lb, iterations=max_iterations, step_size=eta_nag, mu=mu_nag)
+        # Ub_gd, Jb_gd = gradient_descent(U0b.clone(), gb, lb, iterations=max_iterations, step_size=eta_gd)
+        # Ub_nag, Jb_nag = nesterov_accelerated_gradient_descent(U0b.clone(), gb, lb, iterations=max_iterations, step_size=eta_nag, mu=mu_nag)
         Ub_pgd, Jb_pgd = projected_gradient_descent(U0b.clone(), gb, lb, project, iterations=max_iterations, step_size=eta_pgd)
 
         Ub_l2o, Jb_l2o = l2o_descent(U0b.clone(), learned_update, gb, lb, project, Ab, bb, iterations=max_iterations, step_size=eta_pgd)
 
         if not flag:
-            J_gd, J_pgd, J_nag, J_l2o = Jb_gd, Jb_pgd, Jb_nag, Jb_l2o
+            # J_gd = Jb_gd
+            J_pgd = Jb_pgd
+            # J_nag = Jb_nag
+            J_l2o = Jb_l2o
             flag = True
         else:
-            J_gd = torch.vstack([J_gd, Jb_gd])
+            # J_gd = torch.vstack([J_gd, Jb_gd])
             J_pgd = torch.vstack([J_pgd, Jb_pgd])
-            J_nag = torch.vstack([J_nag, Jb_nag])
+            # J_nag = torch.vstack([J_nag, Jb_nag])
             J_l2o = torch.vstack([J_l2o, Jb_l2o])
 
-    J_gd_mean = torch.mean(J_gd, dim=0).squeeze().cpu()
-    J_gd_std = torch.std(J_gd, dim=0).squeeze().cpu()
+    # J_gd_mean = torch.mean(J_gd, dim=0).squeeze().cpu()
+    # J_gd_std = torch.std(J_gd, dim=0).squeeze().cpu()
+    
+    upper_quantile = 0.85
 
     J_pgd_mean = torch.mean(J_pgd, dim=0).squeeze().cpu()
     J_pgd_std = torch.std(J_pgd, dim=0).squeeze().cpu()
+    J_pgd_quantile_low = torch.quantile(J_pgd, 0.1, dim=0).detach().squeeze().cpu()
+    J_pgd_quantile_high = torch.quantile(J_pgd, upper_quantile, dim=0).detach().squeeze().cpu()
 
-    J_nag_mean = torch.mean(J_nag, dim=0).squeeze().cpu()
-    J_nag_std = torch.std(J_nag, dim=0).squeeze().cpu()
+    # J_nag_mean = torch.mean(J_nag, dim=0).squeeze().cpu()
+    # J_nag_std = torch.std(J_nag, dim=0).squeeze().cpu()
 
     J_l2o_mean = torch.mean(J_l2o, dim=0).squeeze().cpu()
     J_l2o_std = torch.std(J_l2o, dim=0).squeeze().cpu()
+    J_l2o_quantile_low = torch.quantile(J_l2o, 0.1, dim=0).detach().squeeze().cpu()
+    J_l2o_quantile_high = torch.quantile(J_l2o, upper_quantile, dim=0).detach().squeeze().cpu()
 
-    plt.figure()
+    plt.figure(figsize=(8, 4))
     plt.yscale('log')
 
-    plt.plot(range(max_iterations+1), J_gd_mean, label="Gradient Descent")
-    plt.fill_between(range(max_iterations+1),
-                    (J_gd_mean - J_gd_std).numpy(),
-                    (J_gd_mean + J_gd_std).numpy(),
-                    alpha=0.3)
-    plt.plot(range(max_iterations+1), J_pgd_mean, label="Projected Gradient Descent")
-    plt.fill_between(range(max_iterations+1),
-                    (J_pgd_mean - J_pgd_std).numpy(),
-                    (J_pgd_mean + J_pgd_std).numpy(),
-                    alpha=0.3)
-    plt.plot(range(max_iterations+1), J_nag_mean, label="Nesterov Accelerated Gradient Descent")
-    plt.fill_between(range(max_iterations+1),
-                    (J_nag_mean - J_nag_std).numpy(),
-                    (J_nag_mean + J_nag_std).numpy(),
-                    alpha=0.3)
-    plt.plot(range(max_iterations+1), J_l2o_mean.detach(), label="Learned Optimizer")
-    plt.fill_between(range(max_iterations+1),
-                    (J_l2o_mean - J_l2o_std).detach().numpy(),
-                    (J_l2o_mean + J_l2o_std).detach().numpy(),
-                    alpha=0.3)
+    # plt.plot(range(max_iterations+1), J_gd_mean, label="Gradient Descent")
+    # plt.fill_between(range(max_iterations+1),
+    #                 (J_gd_mean - J_gd_std).numpy(),
+    #                 (J_gd_mean + J_gd_std).numpy(),
+    #                 alpha=0.3)
+    
+    
+    plt.plot(range(1, max_iterations+1), J_pgd_mean[1:], color='red', label="Projected Gradient Descent")
+    # plt.fill_between(range(max_iterations),
+    #                 (J_pgd_mean[1:] - J_pgd_std[1:]).numpy(),
+    #                 (J_pgd_mean[1:] + J_pgd_std[1:]).numpy(),
+    #                 alpha=0.3)
+    plt.plot(range(1, max_iterations+1), J_l2o_mean[1:].detach(), color='green', label="Linearly convergent L2O")
+    # plt.fill_between(range(max_iterations),
+    #                 (J_l2o_mean[1:] - J_l2o_std[1:]).detach().numpy(),
+    #                 (J_l2o_mean[1:] + J_l2o_std[1:]).detach().numpy(),
+    #                 alpha=0.3)
+
+    # Plot filled areas for the quantile ranges
+    plt.fill_between(range(1, max_iterations+1), J_pgd_quantile_low[1:], J_pgd_quantile_high[1:], color='red', alpha=0.1)
+    plt.fill_between(range(1, max_iterations+1), J_l2o_quantile_low[1:], J_l2o_quantile_high[1:], color='green', alpha=0.1)
+
+    # plt.plot(range(max_iterations+1), J_nag_mean, label="Nesterov Accelerated Gradient Descent")
+    # plt.fill_between(range(max_iterations+1),
+    #                 (J_nag_mean - J_nag_std).numpy(),
+    #                 (J_nag_mean + J_nag_std).numpy(),
+    #                 alpha=0.3)
+    
+    plt.xlabel("Number of optimization steps")
+    plt.ylabel("Value of the quadratic objective function")
+    # plt.title("Average Cost vs. Iterations")
+    plt.yscale('log')  # Log scale for better visibility of differences
+    plt.ylim(bottom=1e1)
+    plt.xlim(left=1, right=100)  # Adjust x-axis limits to fit the data range
+    plt.yticks([10], [r'$10^1$'])
+    # Bring all line markers to the foreground so their full shape is visible ("in primo piano")
+    for line in plt.gca().get_lines():
+        line.set_clip_on(False)
+    # plt.xticks(x_vals, ['1', '5', '10', '20', '30', '50', '75', '100'])
+    plt.legend()
+    plt.tight_layout()
+    plt.minorticks_on()
+    plt.grid(True, which='major', linestyle='-', linewidth=0.5, color='gray')
+    plt.grid(True, which='minor', linestyle=':', linewidth=0.25, color='gray')
+    # plt.grid(which='major', color='gray', linestyle='-', linewidth=0.75)
+    # plt.grid(which='minor', color='gray', linestyle=':', linewidth=0.5)
+    # plt.savefig('my_plot.png', bbox_inches='tight')
+
+    # plt.plot(range(max_iterations+1), J_pgd_mean, label="Projected Gradient Descent")
+    # plt.fill_between(range(max_iterations+1),
+    #                 (J_pgd_mean - J_pgd_std).numpy(),
+    #                 (J_pgd_mean + J_pgd_std).numpy(),
+    #                 alpha=0.3)
+    # plt.plot(range(max_iterations+1), J_l2o_mean.detach(), label="Learned Optimizer")
+    # plt.fill_between(range(max_iterations+1),
+    #                 (J_l2o_mean - J_l2o_std).detach().numpy(),
+    #                 (J_l2o_mean + J_l2o_std).detach().numpy(),
+    #                 alpha=0.3)
+
     plt.legend()
     plt.grid(True)
 
+    plt.savefig('my_plot.png', bbox_inches='tight')
     # plt.figure()
     # plt.plot(range(T), Ub_gd[-1][0], label="Gradient Descent")
     # plt.plot(range(T), Ub_pgd[-1][0], label="Projected Gradient Descent")
@@ -841,7 +1054,7 @@ def main():
     # plt.grid(True)
     # plt.title("Control Input Trajectories")
     plt.show()
-    '''
+
 
     print(f"That's all folks!")
  
