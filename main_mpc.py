@@ -21,9 +21,11 @@ class LinearDynamicalSystem:
         self.x = x0.to(device) if x0 is not None else torch.zeros((self.n, 1), device=device)
         self.device = device
 
-    def step(self, u):
+    def step(self, u, noisy=False):
         u = u.to(self.device)
         self.x = self.A @ self.x + self.B @ u
+        if noisy: 
+            self.x = self.x + torch.randn((self.n, 1), device=self.device) * 0.01  # Add small noise
         return self.x
 
     def reset(self, x0=None):
@@ -108,8 +110,8 @@ class FiniteHorizonOCP:
             -torch.eye(self.T * self.sys.m, self.T * self.sys.m, device=self.device)
         ])
         b = torch.vstack([
-            0.75 * torch.ones(self.T * self.sys.m, 1, device=self.device),
-            0.75 * torch.ones(self.T * self.sys.m, 1, device=self.device)
+            0.25 * torch.ones(self.T * self.sys.m, 1, device=self.device),
+            0.25 * torch.ones(self.T * self.sys.m, 1, device=self.device)
         ])
 
         return Q, c, q, A, b
@@ -129,7 +131,12 @@ class ModelPredictiveControlDataset(Dataset):
         return self.num_samples
 
     def __getitem__(self, idx):
-        x0 = 1 * (torch.rand(self.ocp.sys.n, 1, device=self.device) - 0.5) #+ torch.ones(self.ocp.sys.n, 1, device=self.device)
+        # x0 = 2 * (torch.rand(self.ocp.sys.n, 1, device=self.device) - 0.5) #+ torch.ones(self.ocp.sys.n, 1, device=self.device)
+        # Define standard deviations for each component (adjust the values as needed)
+        stds = torch.tensor([0.5, 0.5], device=self.device).unsqueeze(1)
+        x0 = torch.randn((self.ocp.sys.n, 1), device=self.device) * stds
+        # multipliers = torch.tensor([5, 0.5, 0.5, 0.5, 0.5], device=self.device).unsqueeze(1)
+        # x0 = torch.tensor([[5.0], [0.0], [0.0], [0.0], [0.0]], device=self.device) + (torch.rand((5, 1), device=self.device) - 0.5) * 0 #multipliers
         return self.ocp.generate_qp(x0)
     
 class TwoLayerLSTM(nn.Module):
@@ -232,6 +239,9 @@ def agmon_projection(A, b, x0, max_iters, lambda_=1.0): # Iteratively enforce Ax
         # projection step
         x = x - lambda_ * (max_v / row_norms_sq[idx]) * A[idx]
 
+
+        # print("I did something")
+
     # stack into one tensor
     # violations = torch.stack(violations)     # (max_iters,)
     return x
@@ -240,6 +250,10 @@ def meta_training_mpc(model, dataloader, meta_optimizer, initial_guess, step_siz
 
     dataloader_iter = iter(dataloader)
     model.train()
+
+    # Save the trained learned optimizer parameters
+    directory_path = './trained_mpc_solvers/'
+    os.makedirs(directory_path, exist_ok=True)
 
     for epoch in range(epochs):
         meta_optimizer.zero_grad()
@@ -254,7 +268,7 @@ def meta_training_mpc(model, dataloader, meta_optimizer, initial_guess, step_siz
 
         gb = lambda U: Qb @ U + cb
         lb = lambda U: 0.5 * U.mT @ Qb @ U + cb.mT @ U + qb
-        project = lambda U: torch.clamp(U, min=-0.75, max=0.75)
+        project = lambda U: torch.clamp(U, min=-0.25, max=0.25)
 
         for i in range(max_iterations):
             vb = model(Ub, lb(Ub), gb(Ub), i).unsqueeze(-1)
@@ -273,6 +287,11 @@ def meta_training_mpc(model, dataloader, meta_optimizer, initial_guess, step_siz
 
         meta_loss.backward()
         meta_optimizer.step()
+
+        if (epoch+1) % 5 == 0:
+            file_path = os.path.join(directory_path, f'learned_optimizer_aircraft_e{epoch+1}.pt')
+            torch.save(model.state_dict(), file_path)
+            print(f"Trained learned optimizer saved to {file_path}")
 
 def l2o_descent(U0, model, g, l, project, A, b, iterations, step_size):
     U = [project(U0)]
@@ -319,12 +338,12 @@ def run_mpc_loop_pgd(ocp, eta_pgd, max_iterations, control_horizon):
         u = torch.zeros((1, ocp.sys.m * ocp.T, 1), device=device)
         g = lambda U: Q @ U + c
         l = lambda U: 0.5 * U.mT @ Q @ U + c.mT @ U + q
-        project = lambda U: torch.clamp(U, min=-0.75, max=0.75)
+        project = lambda U: torch.clamp(U, min=-0.25, max=0.25)
 
         u, J = projected_gradient_descent(u, g, l, project, iterations=max_iterations, step_size=eta_pgd)
         u = u[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
         # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
-        ocp.sys.step(u)
+        ocp.sys.step(u, noisy=False)
 
         X.append(ocp.sys.x)
         U.append(u)
@@ -341,12 +360,14 @@ def run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations, control_horiz
         u = torch.zeros((1, ocp.sys.m * ocp.T, 1), device=device)
         g = lambda U: Q @ U + c
         l = lambda U: 0.5 * U.mT @ Q @ U + c.mT @ U + q
-        project = lambda U: torch.clamp(U, min=-0.75, max=0.75)
+        project = lambda U: torch.clamp(U, min=-0.25, max=0.25)
 
         u, J = l2o_descent(u, learned_update, g, l, project, A, b, iterations=max_iterations, step_size=eta_pgd)
+        if (u > 0.25).any() or (u < -0.25).any():
+            print("Violations!")
         u = u[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
         # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
-        ocp.sys.step(u)
+        ocp.sys.step(u, noisy=False)
 
         X.append(ocp.sys.x)
         U.append(u)
@@ -357,13 +378,40 @@ def main():
     # Initialize the linear dynamical system
     A = torch.tensor([[1.0, 1.0], [0.0, 1.0]], device=device)
     B = torch.tensor([[0.0], [1.0]], device=device)
-    x0 = (torch.rand(A.shape[0], 1, device=device) - 0.5)
+    
+    # x0 = 2 * (torch.rand(A.shape[0], 1, device=device) - 0.5)
+    stds = torch.tensor([0.5, 0.5], device=device).unsqueeze(1)
+    x0 = torch.randn((A.shape[0], 1), device=device) * stds
     sys = LinearDynamicalSystem(A, B, x0=x0, device=device)
 
     Qt = torch.eye(2, 2, device=device)
     Qf = torch.eye(2, 2, device=device)
     Rt = torch.tensor([[1.0]], device=device)
-    T = 10  # Planning horizon for the finite horizon optimal control problem
+    T = 20  # Planning horizon for the finite horizon optimal control problem
+
+
+
+    # Ac = torch.tensor([[0.99, 0.01, 0.18, -0.09,   0],
+    #                 [   0, 0.94,    0,  0.29,   0],
+    #                 [   0, 0.14, 0.81,  -0.9,   0],
+    #                 [   0, -0.2,    0,  0.95,   0],
+    #                 [   0, 0.09,    0,     0, 0.9]], device=device)
+    # Bc = torch.tensor([[ 0.01, -0.02],
+    #                 [-0.14,     0],
+    #                 [ 0.05,  -0.2],
+    #                 [ 0.02,     0],
+    #                 [-0.01, 0]], device=device)
+    # Ts = 0.2 # Sampling time
+    # A = torch.eye(5, device=device) + Ac * Ts
+    # B = Bc * Ts
+    # x0 = torch.tensor([[10], [0], [0], [0], [0]], device=device)  # Initial state
+    # sys = LinearDynamicalSystem(A, B, x0=x0, device=device)
+
+    # Qt = 10 * torch.eye(5, 5, device=device)
+    # Qf = 10 * torch.eye(5, 5, device=device)
+    # Rt = torch.tensor([[3, 0], [0, 2]], device=device)
+    # T = 20  # Planning horizon for the finite horizon optimal control problem
+
     ocp = FiniteHorizonOCP(sys, Qt, Qf, Rt, T)
 
     kappa = ocp.lambda_max_H / ocp.lambda_min_H
@@ -381,7 +429,7 @@ def main():
 
     if perform_meta_training:
 
-        training_samples, training_batch_size = 2048, 64
+        training_samples, training_batch_size = 4096, 128
         training_dataset = ModelPredictiveControlDataset(ocp, num_samples=training_samples)
         training_dataloader = DataLoader(training_dataset, batch_size=training_batch_size, shuffle=True)
 
@@ -390,20 +438,13 @@ def main():
 
         learned_update = TwoLayerLSTMOptimizer(d=sys.m * T, m=0, gamma=0.95, device=device)
         print(f"Total parameters in LearnedUpdate: {sum(p.numel() for p in learned_update.parameters() if p.requires_grad)}")
-        meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=1e-2)
+        meta_optimizer = torch.optim.Adam(learned_update.parameters(), lr=.5e-3)
         meta_training_mpc(model=learned_update, dataloader=training_dataloader, meta_optimizer=meta_optimizer, initial_guess=U0b, step_size=eta_pgd, max_iterations=max_iterations, epochs=epochs, device=device)
-
-        # Save the trained learned optimizer parameters
-        directory_path = './trained_mpc_solvers/'
-        os.makedirs(directory_path, exist_ok=True)
-        file_path = os.path.join(directory_path, 'learned_optimizer.pt')
-        torch.save(learned_update.state_dict(), file_path)
-        print(f"Trained learned optimizer saved to {file_path}")
     else:
         print("Skipping meta-training. Using pre-trained learned optimizer.")
         # Load the pre-trained learned optimizer parameters
         directory_path = './trained_mpc_solvers/'
-        file_path = os.path.join(directory_path, 'learned_optimizer.pt')
+        file_path = os.path.join(directory_path, 'learned_optimizer_x0g05_T20_upm025_e65.pt')
         if os.path.exists(file_path):
             print(f"Loading pre-trained learned optimizer from {file_path}")
             learned_update = TwoLayerLSTMOptimizer(d=sys.m * T, m=0, gamma=0.95, device=device)
@@ -415,62 +456,261 @@ def main():
     learned_update.eval()
 
 
-    print("Starting MPC loop with different solvers...")
-    with torch.no_grad():
-        ocp_test = FiniteHorizonOCP(sys, Qt, Qf, Rt, 20)
-        n_iter = 20
-        cost_pgd_1 = torch.empty(n_iter, device=device)
-        cost_pgd_2 = torch.empty(n_iter, device=device)
-        cost_pgd_3 = torch.empty(n_iter, device=device)
-        cost_l2o_1 = torch.empty(n_iter, device=device)
-        cost_l2o_2 = torch.empty(n_iter, device=device)
-        cost_l2o_3 = torch.empty(n_iter, device=device)
+    data_file = 'mpc_cost_data.npz'
     
-        for i in range(n_iter):
-            x0 = (torch.rand(A.shape[0], 1, device=device) - 0.5)
-
-            ocp.sys.reset(x0)  # Reset the system state before running the MPC loop
-
-            # X_gd_1 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=3, control_horizon=20)
-            # ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            # X_gd_2 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=30, control_horizon=20)
-            # ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            # X_gd_3 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=300, control_horizon=20)
-            # ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            # X_pgd_1, U_pgd_1 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=3, control_horizon=20)
-            # ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            X_pgd_2, U_pgd_2 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=10, control_horizon=20)
-            ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            X_pgd_3, U_pgd_3 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=100, control_horizon=20)
-            ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            # X_l2o_1, U_l2o_1 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=3, control_horizon=20)
-            # ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            X_l2o_2, U_l2o_2 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=10, control_horizon=20)
-            ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            X_l2o_3, U_l2o_3 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=100, control_horizon=20)
-            ocp.sys.reset(x0)  # Reset the system state for the next run
-
-            # cost_pgd_1[i] = ocp_test.cost(U_pgd_1.T).item()
-            cost_pgd_2[i] = ocp_test.cost(U_pgd_2.T).item()
-            cost_pgd_3[i] = ocp_test.cost(U_pgd_3.T).item()
-            # cost_l2o_1[i] = ocp_test.cost(U_l2o_1.T).item()
-            cost_l2o_2[i] = ocp_test.cost(U_l2o_2.T).item()
-            cost_l2o_3[i] = ocp_test.cost(U_l2o_3.T).item()
+    if False:#not os.path.exists(data_file):
+        print("Starting MPC loop with different solvers...")
+        with torch.no_grad():
+            control_horizon = 30  # Control horizon for the MPC loop
+            ocp_test = FiniteHorizonOCP(sys, Qt, Qf, Rt, control_horizon)
+            n_iter = 100
+            cost_pgd_1 = torch.empty(n_iter, device=device)
+            cost_pgd_2 = torch.empty(n_iter, device=device)
+            cost_pgd_3 = torch.empty(n_iter, device=device)
+            cost_pgd_4 = torch.empty(n_iter, device=device)
+            cost_pgd_5 = torch.empty(n_iter, device=device)
+            cost_pgd_6 = torch.empty(n_iter, device=device) 
+            cost_l2o_1 = torch.empty(n_iter, device=device)
+            cost_l2o_2 = torch.empty(n_iter, device=device)
+            cost_l2o_3 = torch.empty(n_iter, device=device)
+            cost_l2o_4 = torch.empty(n_iter, device=device)
+            cost_l2o_5 = torch.empty(n_iter, device=device)
+            cost_l2o_6 = torch.empty(n_iter, device=device)
         
+            for i in range(n_iter):
+                # x0 = 2 * (torch.rand(A.shape[0], 1, device=device) - 0.5)
+                x0 = torch.randn((A.shape[0], 1), device=device) * stds
 
-        print("Mean cost PGD (10 iters): {:.3f} | Variance of cost PGD (10 iters): {:.3f}".format(cost_pgd_2.mean().item(), cost_pgd_2.var().item()))
-        print("Mean cost L2O (10 iters): {:.3f} | Variance of cost L2O (10 iters): {:.3f}".format(cost_l2o_2.mean().item(), cost_l2o_2.var().item()))
+                ocp.sys.reset(x0)  # Reset the system state before running the MPC loop
+
+                # X_gd_1 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=3, control_horizon=20)
+                # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                # X_gd_2 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=30, control_horizon=20)
+                # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                # X_gd_3 = run_mpc_loop_gd(ocp, eta_gd, max_iterations=300, control_horizon=20)
+                # ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_1, U_pgd_1 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=5, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_2, U_pgd_2 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=10, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_3, U_pgd_3 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=20, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_1, U_l2o_1 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=5, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_2, U_l2o_2 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=10, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_3, U_l2o_3 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=20, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_4, U_pgd_4 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=30, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_5, U_pgd_5 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=50, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_pgd_6, U_pgd_6 = run_mpc_loop_pgd(ocp, eta_pgd, max_iterations=100, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+
+                X_l2o_4, U_l2o_4 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=30, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_5, U_l2o_5 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=50, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                X_l2o_6, U_l2o_6 = run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations=100, control_horizon=control_horizon)
+                ocp.sys.reset(x0)  # Reset the system state for the next run
+
+                cost_pgd_1[i] = ocp_test.cost(U_pgd_1.T).item()
+                cost_pgd_2[i] = ocp_test.cost(U_pgd_2.T).item()
+                cost_pgd_3[i] = ocp_test.cost(U_pgd_3.T).item()
+                cost_pgd_4[i] = ocp_test.cost(U_pgd_4.T).item()
+                cost_pgd_5[i] = ocp_test.cost(U_pgd_5.T).item()
+                cost_pgd_6[i] = ocp_test.cost(U_pgd_6.T).item()
+
+                cost_l2o_1[i] = ocp_test.cost(U_l2o_1.T).item()
+                cost_l2o_2[i] = ocp_test.cost(U_l2o_2.T).item()
+                cost_l2o_3[i] = ocp_test.cost(U_l2o_3.T).item()
+                cost_l2o_4[i] = ocp_test.cost(U_l2o_4.T).item()
+                cost_l2o_5[i] = ocp_test.cost(U_l2o_5.T).item()
+                cost_l2o_6[i] = ocp_test.cost(U_l2o_6.T).item()
+
+        print("Mean cost PGD (5 iters): {:.2f} | Variance of cost PGD (5 iters): {:.2f}".format(cost_pgd_1.mean().item(), cost_pgd_1.var().item()))
+        print("Mean cost L2O (5 iters): {:.2f} | Variance of cost L2O (5 iters): {:.2f}".format(cost_l2o_1.mean().item(), cost_l2o_1.var().item()))
+
+        print("Mean cost PGD (10 iters): {:.2f} | Variance of cost PGD (10 iters): {:.2f}".format(cost_pgd_2.mean().item(), cost_pgd_2.var().item()))
+        print("Mean cost L2O (10 iters): {:.2f} | Variance of cost L2O (10 iters): {:.2f}".format(cost_l2o_2.mean().item(), cost_l2o_2.var().item()))
         
-        print("Mean cost PGD (100 iters): {:.3f} | Variance of cost PGD (100 iters): {:.3f}".format(cost_pgd_3.mean().item(), cost_pgd_3.var().item()))
-        print("Mean cost L2O (100 iters): {:.3f} | Variance of cost L2O (100 iters): {:.3f}".format(cost_l2o_3.mean().item(), cost_l2o_3.var().item()))
+        print("Mean cost PGD (20 iters): {:.2f} | Variance of cost PGD (20 iters): {:.2f}".format(cost_pgd_3.mean().item(), cost_pgd_3.var().item()))
+        print("Mean cost L2O (20 iters): {:.2f} | Variance of cost L2O (20 iters): {:.2f}".format(cost_l2o_3.mean().item(), cost_l2o_3.var().item()))
+        
+        print("Mean cost PGD (30 iters): {:.2f} | Variance of cost PGD (30 iters): {:.2f}".format(cost_pgd_4.mean().item(), cost_pgd_4.var().item()))
+        print("Mean cost L2O (30 iters): {:.2f} | Variance of cost L2O (30 iters): {:.2f}".format(cost_l2o_4.mean().item(), cost_l2o_4.var().item()))
+
+        print("Mean cost PGD (50 iters): {:.2f} | Variance of cost PGD (50 iters): {:.2f}".format(cost_pgd_5.mean().item(), cost_pgd_5.var().item()))   
+        print("Mean cost L2O (50 iters): {:.2f} | Variance of cost L2O (50 iters): {:.2f}".format(cost_l2o_5.mean().item(), cost_l2o_5.var().item()))
+
+        print("Mean cost PGD (100 iters): {:.2f} | Variance of cost PGD (100 iters): {:.2f}".format(cost_pgd_6.mean().item(), cost_pgd_6.var().item()))   
+        print("Mean cost L2O (100 iters): {:.2f} | Variance of cost L2O (100 iters): {:.2f}".format(cost_l2o_6.mean().item(), cost_l2o_6.var().item()))
+
+        # Save the data to a .npz file if it doesn't exist
+        np.savez(data_file,
+                cost_pgd_1=cost_pgd_1.cpu().numpy(),
+                cost_l2o_1=cost_l2o_1.cpu().numpy(),
+                cost_pgd_2=cost_pgd_2.cpu().numpy(),
+                cost_l2o_2=cost_l2o_2.cpu().numpy(),
+                cost_pgd_3=cost_pgd_3.cpu().numpy(),
+                cost_l2o_3=cost_l2o_3.cpu().numpy(),
+                cost_pgd_4=cost_pgd_4.cpu().numpy(),
+                cost_l2o_4=cost_l2o_4.cpu().numpy(),
+                cost_pgd_5=cost_pgd_5.cpu().numpy(),
+                cost_l2o_5=cost_l2o_5.cpu().numpy(),
+                cost_pgd_6=cost_pgd_6.cpu().numpy(),
+                cost_l2o_6=cost_l2o_6.cpu().numpy())
+        print(f"Data saved to {data_file}")
+
+
+    # Visualize the costs using a box plot
+    import matplotlib.pyplot as plt
+
+    import matplotlib.patches as mpatches
+
+    # data = [
+    #     cost_pgd_1.cpu().numpy(),
+    #     cost_l2o_1.cpu().numpy(),
+    #     cost_pgd_2.cpu().numpy(),
+    #     cost_l2o_2.cpu().numpy(),
+    #     cost_pgd_3.cpu().numpy(),
+    #     cost_l2o_3.cpu().numpy(),
+    # ]
+
+    # Load the data from the .npz file
+    data = np.load(data_file)
+    cost_pgd_1 = data['cost_pgd_1']
+    cost_l2o_1 = data['cost_l2o_1']
+    cost_pgd_2 = data['cost_pgd_2']
+    cost_l2o_2 = data['cost_l2o_2']
+    cost_pgd_3 = data['cost_pgd_3']
+    cost_l2o_3 = data['cost_l2o_3']
+    cost_pgd_4 = data['cost_pgd_4']
+    cost_l2o_4 = data['cost_l2o_4']
+    cost_pgd_5 = data['cost_pgd_5']
+    cost_l2o_5 = data['cost_l2o_5']
+    cost_pgd_6 = data['cost_pgd_6']
+    cost_l2o_6 = data['cost_l2o_6']
+    print(f"Data loaded from {data_file}")
+
+    # Define positions for pairs: first for PGD (red) and second for L2O (green)
+    positions = [1, 1.4, 2, 2.4, 3, 3.4, 4, 4.4, 5, 5.4]
+
+    # Arrange data in the order: [PGD (5 iters), L2O (5 iters), PGD (10 iters), L2O (10 iters), PGD (20 iters), L2O (20 iters),
+    # PGD (30 iters), L2O (30 iters), PGD (50 iters), L2O (50 iters)]
+    data = [cost_pgd_1, cost_l2o_1, cost_pgd_2, cost_l2o_2, cost_pgd_3, cost_l2o_3, cost_pgd_4, cost_l2o_4, cost_pgd_5, cost_l2o_5, cost_pgd_6, cost_l2o_6]
+
+    # # First box plot with custom positions and colors, removing outlier markers
+    # plt.figure(figsize=(8, 6))
+    # bp = plt.boxplot(data, positions=positions, widths=0.3, patch_artist=True, showfliers=False)
+
+    # # Set colors: even indexed boxes for PGD (red), odd indexed for L2O (green)
+    # for i, box in enumerate(bp['boxes']):
+    #     box.set_facecolor("red" if i % 2 == 0 else "green")
+
+    # y_max = plt.ylim()[1]
+    # for pos, d in zip(positions, data):
+    #     mean_val = np.mean(d)
+    #     std_val = np.std(d)
+    #     plt.text(pos, y_max * 0.95, f'{mean_val:.2f}\n±{std_val:.2f}', ha='center', va='top', fontsize=10, color="blue")
+
+    # # Center x-axis ticks at positions corresponding to iteration counts
+    # plt.xticks([1.2, 2.2, 3.2, 4.2, 5.2], ['5', '10', '20', '30', '50'])
+    # plt.ylabel("Cost")
+    # plt.yscale('log')  # Log scale for better visibility of differences
+    # plt.title("Cost Comparison Box Plot")
+
+    # # Add legend for colors
+    # red_patch = mpatches.Patch(color='red', label='PGD')
+    # green_patch = mpatches.Patch(color='green', label='L2O')
+    # plt.legend(handles=[red_patch, green_patch])
+    # plt.tight_layout()
+
+    # New plot: average cost vs. iterations (5, 10, 20, 30, 50, 100) with mean and mean+std (dotted) lines
+    plt.figure(figsize=(8, 6))
+    x_vals = np.array([5, 10, 20, 30, 50, 100])
+    
+    # PGD: compute mean and std for each iteration count, including 100 iterations
+    pgd_means = np.array([
+        np.mean(cost_pgd_1),
+        np.mean(cost_pgd_2),
+        np.mean(cost_pgd_3),
+        np.mean(cost_pgd_4),
+        np.mean(cost_pgd_5),
+        np.mean(cost_pgd_6)
+    ])
+    pgd_stds = np.array([
+        np.std(cost_pgd_1),
+        np.std(cost_pgd_2),
+        np.std(cost_pgd_3),
+        np.std(cost_pgd_4),
+        np.std(cost_pgd_5),
+        np.std(cost_pgd_6)
+    ])
+    
+    # L2O: compute mean and std for each iteration count, including 100 iterations
+    l2o_means = np.array([
+        np.mean(cost_l2o_1),
+        np.mean(cost_l2o_2),
+        np.mean(cost_l2o_3),
+        np.mean(cost_l2o_4),
+        np.mean(cost_l2o_5),
+        np.mean(cost_l2o_6)
+    ])
+    l2o_stds = np.array([
+        np.std(cost_l2o_1),
+        np.std(cost_l2o_2),
+        np.std(cost_l2o_3),
+        np.std(cost_l2o_4),
+        np.std(cost_l2o_5),
+        np.std(cost_l2o_6)
+    ])
+    
+    # Plot the mean cost interpolated linearly
+    plt.plot(x_vals, pgd_means, 'o-', color='red', label='PGD Mean')
+    plt.plot(x_vals, l2o_means, 'o-', color='green', label='L2O Mean')
+    
+    # Plot dotted lines for mean + std
+    plt.plot(x_vals, pgd_means + pgd_stds, 'r--', label='PGD Mean+Std')
+    plt.plot(x_vals, l2o_means + l2o_stds, 'g--', label='L2O Mean+Std')
+    
+    plt.xlabel("Iterations")
+    plt.ylabel("Average Cost")
+    plt.title("Average Cost vs. Iterations")
+    plt.yscale('log')  # Log scale for better visibility of differences
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # Second box plot using categorical labels
+    # plt.figure(figsize=(8, 6))
+    # labels = ['PGD', 'L2O', 'PGD', 'L2O', 'PGD', 'L2O']
+    # plt.boxplot(data, labels=labels, patch_artist=True)
+    # plt.title("Cost Comparison Box Plot")
+    # plt.ylabel("Cost")
+    # plt.yscale('log')  # Log scale for better visibility of differences
+    # plt.xticks(rotation=45)
+    # plt.tight_layout()
+    # plt.show()
+
+
+
+
             # print(ocp_test.cost(U_pgd_1.T).item(), ocp_test.cost(U_pgd_2.T).item(), ocp_test.cost(U_pgd_3.T).item())
             # print(ocp_test.cost(U_l2o_1.T).item(), ocp_test.cost(U_l2o_2.T).item(), ocp_test.cost(U_l2o_3.T).item())
 
@@ -536,7 +776,7 @@ def main():
 
         gb = lambda U: Qb @ U + cb
         lb = lambda U: 0.5 * U.mT @ Qb @ U + cb.mT @ U + qb
-        project = lambda U: torch.clamp(U, min=-0.75, max=0.75) # Project onto the box constraints
+        project = lambda U: torch.clamp(U, min=-5, max=5) # Project onto the box constraints
 
         # print(f"\nOptimal value of unconstrained optimization problem: {lb(-torch.linalg.inv(Qb) @ cb).item():.2f}")
 
