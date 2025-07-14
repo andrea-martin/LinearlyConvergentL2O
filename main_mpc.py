@@ -25,7 +25,7 @@ class LinearDynamicalSystem:
         u = u.to(self.device)
         self.x = self.A @ self.x + self.B @ u
         if noisy: 
-            self.x = self.x + torch.randn((self.n, 1), device=self.device) * 0.01  # Add small noise
+            self.x = self.x + torch.randn((self.n, 1), device=self.device) * 0.005  # Add small noise
         return self.x
 
     def reset(self, x0=None):
@@ -343,7 +343,7 @@ def run_mpc_loop_pgd(ocp, eta_pgd, max_iterations, control_horizon):
         u, J = projected_gradient_descent(u, g, l, project, iterations=max_iterations, step_size=eta_pgd)
         u = u[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
         # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
-        ocp.sys.step(u, noisy=False)
+        ocp.sys.step(u, noisy=True)
 
         X.append(ocp.sys.x)
         U.append(u)
@@ -367,7 +367,7 @@ def run_mpc_loop_l2o(ocp, learned_update, eta_pgd, max_iterations, control_horiz
             print("Violations!")
         u = u[:, -ocp.sys.m * ocp.T:-ocp.sys.m * (ocp.T - 1), :].squeeze(0)
         # print(f"Optimal control input at time {t}: {U.squeeze().cpu().numpy()}\n")
-        ocp.sys.step(u, noisy=False)
+        ocp.sys.step(u, noisy=True)
 
         X.append(ocp.sys.x)
         U.append(u)
@@ -456,7 +456,7 @@ def main():
     learned_update.eval()
 
 
-    data_file = 'mpc_cost_data.npz'
+    data_file = 'mpc_cost_data_noisy.npz'
     
     if False:#not os.path.exists(data_file):
         print("Starting MPC loop with different solvers...")
@@ -792,7 +792,7 @@ def main():
     
     # Compute lower and upper quantiles (e.g., 10% and 90% quantiles)
 
-    upper_quantile = 0.8
+    upper_quantile = 0.9
     pgd_lower = np.array([
         np.quantile(cost_pgd_b, 0.1),
         np.quantile(cost_pgd_1, 0.1),
