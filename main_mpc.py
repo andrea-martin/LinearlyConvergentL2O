@@ -726,7 +726,8 @@ def main():
     # plt.tight_layout()
 
     # New plot: average cost vs. iterations (0, 5, 10, 20, 30, 50, 100) with mean and mean+std (dotted) lines
-    plt.figure(figsize=(8, 4))
+    plt.figure(figsize=(5, 2.5))
+    
     # x_vals = np.array([0, 1, 2, 3, 5, 10, 20, 30, 50, 75, 100])
     x_vals = np.array([1, 5, 10, 20, 30, 50, 75, 100])
     
@@ -787,8 +788,8 @@ def main():
     ])
     
     # Plot the mean cost
-    plt.plot(x_vals, pgd_means, 'o-', color='red', label='Projected gradient descent')
-    plt.plot(x_vals, l2o_means, 'o-', color='green', label='Linearly convergent L2O')
+    plt.plot(x_vals, pgd_means, 'o-', markersize=5, color='#d62728', label='PGD')
+    plt.plot(x_vals, l2o_means, 'o-', markersize=5, color='#2ca02c', label='Ours (augmented PGD)')
     
     # Compute lower and upper quantiles (e.g., 10% and 90% quantiles)
 
@@ -836,12 +837,13 @@ def main():
     ])
 
     # Plot filled areas for the quantile ranges
-    plt.fill_between(x_vals, pgd_lower, pgd_upper, color='red', alpha=0.1)
-    plt.fill_between(x_vals, l2o_lower, l2o_upper, color='green', alpha=0.1)
+    plt.fill_between(x_vals, pgd_lower, pgd_upper, color='#d62728', alpha=0.15)
+    plt.fill_between(x_vals, l2o_lower, l2o_upper, color='#2ca02c', alpha=0.15)
 
     
-    plt.xlabel("Number of optimization steps")
-    plt.ylabel("Closed-loop control cost")
+    plt.xlabel("Iteration budget")
+    plt.ylabel("Control cost")
+
     # plt.title("Average Cost vs. Iterations")
     plt.yscale('log')  # Log scale for better visibility of differences
     plt.ylim(bottom=1e1)
@@ -850,15 +852,19 @@ def main():
     for line in plt.gca().get_lines():
         line.set_clip_on(False)
     # plt.xticks(x_vals, ['1', '5', '10', '20', '30', '50', '75', '100'])
-    plt.legend()
-    plt.tight_layout()
-    plt.minorticks_on()
-    plt.grid(True, which='major', linestyle='-', linewidth=0.5, color='gray')
-    plt.grid(True, which='minor', linestyle=':', linewidth=0.25, color='gray')
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.minorticks_on()
+    # plt.grid(True, which='major', linestyle='-', linewidth=0.5, color='gray')
+    # plt.grid(True, which='minor', linestyle=':', linewidth=0.25, color='gray')
     # plt.grid(which='major', color='gray', linestyle='-', linewidth=0.75)
     # plt.grid(which='minor', color='gray', linestyle=':', linewidth=0.5)
-    plt.savefig('my_plot.png', bbox_inches='tight')
+    # plt.savefig('my_plot.png', bbox_inches='tight')
     
+
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1), ncol=2, frameon=False, fontsize=8)
+    
+    plt.savefig(directory_path + '_T101_zoomed.pdf', format='pdf', bbox_inches='tight')
     plt.show()
 
     # Second box plot using categorical labels
@@ -871,8 +877,6 @@ def main():
     # plt.xticks(rotation=45)
     # plt.tight_layout()
     # plt.show()
-
-
 
 
             # print(ocp_test.cost(U_pgd_1.T).item(), ocp_test.cost(U_pgd_2.T).item(), ocp_test.cost(U_pgd_3.T).item())
@@ -924,9 +928,6 @@ def main():
     
 
     
-
-
-
     ocp = FiniteHorizonOCP(sys, Qt, Qf, Rt, T)
     # Test the learned optimizer on a batch of problems
     test_samples, test_batch_size = 256, 16
@@ -965,7 +966,7 @@ def main():
     # J_gd_mean = torch.mean(J_gd, dim=0).squeeze().cpu()
     # J_gd_std = torch.std(J_gd, dim=0).squeeze().cpu()
     
-    upper_quantile = 0.85
+    upper_quantile = 0.9
 
     J_pgd_mean = torch.mean(J_pgd, dim=0).squeeze().cpu()
     J_pgd_std = torch.std(J_pgd, dim=0).squeeze().cpu()
@@ -980,7 +981,7 @@ def main():
     J_l2o_quantile_low = torch.quantile(J_l2o, 0.1, dim=0).detach().squeeze().cpu()
     J_l2o_quantile_high = torch.quantile(J_l2o, upper_quantile, dim=0).detach().squeeze().cpu()
 
-    plt.figure(figsize=(8, 4))
+    plt.figure(figsize=(5, 2.5))
     plt.yscale('log')
 
     # plt.plot(range(max_iterations+1), J_gd_mean, label="Gradient Descent")
@@ -990,20 +991,20 @@ def main():
     #                 alpha=0.3)
     
     
-    plt.plot(range(1, max_iterations+1), J_pgd_mean[1:], color='red', label="Projected Gradient Descent")
+    plt.plot(range(1, max_iterations+1), J_pgd_mean[1:], color='#d62728', label="PGD")
     # plt.fill_between(range(max_iterations),
     #                 (J_pgd_mean[1:] - J_pgd_std[1:]).numpy(),
     #                 (J_pgd_mean[1:] + J_pgd_std[1:]).numpy(),
     #                 alpha=0.3)
-    plt.plot(range(1, max_iterations+1), J_l2o_mean[1:].detach(), color='green', label="Linearly convergent L2O")
+    plt.plot(range(1, max_iterations+1), J_l2o_mean[1:].detach(), color='#2ca02c', label="Ours (augmented PGD)")
     # plt.fill_between(range(max_iterations),
     #                 (J_l2o_mean[1:] - J_l2o_std[1:]).detach().numpy(),
     #                 (J_l2o_mean[1:] + J_l2o_std[1:]).detach().numpy(),
     #                 alpha=0.3)
 
     # Plot filled areas for the quantile ranges
-    plt.fill_between(range(1, max_iterations+1), J_pgd_quantile_low[1:], J_pgd_quantile_high[1:], color='red', alpha=0.1)
-    plt.fill_between(range(1, max_iterations+1), J_l2o_quantile_low[1:], J_l2o_quantile_high[1:], color='green', alpha=0.1)
+    plt.fill_between(range(1, max_iterations+1), J_pgd_quantile_low[1:], J_pgd_quantile_high[1:], color='#d62728', alpha=0.1)
+    plt.fill_between(range(1, max_iterations+1), J_l2o_quantile_low[1:], J_l2o_quantile_high[1:], color='#2ca02c', alpha=0.1)
 
     # plt.plot(range(max_iterations+1), J_nag_mean, label="Nesterov Accelerated Gradient Descent")
     # plt.fill_between(range(max_iterations+1),
@@ -1011,22 +1012,25 @@ def main():
     #                 (J_nag_mean + J_nag_std).numpy(),
     #                 alpha=0.3)
     
-    plt.xlabel("Number of optimization steps")
-    plt.ylabel("Value of the quadratic objective function")
+    plt.xlabel("Iteration budget")
+    plt.ylabel("Value of the quadratic loss")
     # plt.title("Average Cost vs. Iterations")
     plt.yscale('log')  # Log scale for better visibility of differences
     plt.ylim(bottom=1e1)
     plt.xlim(left=1, right=100)  # Adjust x-axis limits to fit the data range
     plt.yticks([10], [r'$10^1$'])
     # Bring all line markers to the foreground so their full shape is visible ("in primo piano")
-    for line in plt.gca().get_lines():
-        line.set_clip_on(False)
+    # for line in plt.gca().get_lines():
+    #     line.set_clip_on(False)
     # plt.xticks(x_vals, ['1', '5', '10', '20', '30', '50', '75', '100'])
-    plt.legend()
-    plt.tight_layout()
-    plt.minorticks_on()
-    plt.grid(True, which='major', linestyle='-', linewidth=0.5, color='gray')
-    plt.grid(True, which='minor', linestyle=':', linewidth=0.25, color='gray')
+
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1), ncol=2, frameon=False, fontsize=8)
+
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.minorticks_on()
+    # plt.grid(True, which='major', linestyle='-', linewidth=0.5, color='gray')
+    # plt.grid(True, which='minor', linestyle=':', linewidth=0.25, color='gray')
     # plt.grid(which='major', color='gray', linestyle='-', linewidth=0.75)
     # plt.grid(which='minor', color='gray', linestyle=':', linewidth=0.5)
     # plt.savefig('my_plot.png', bbox_inches='tight')
@@ -1042,10 +1046,13 @@ def main():
     #                 (J_l2o_mean + J_l2o_std).detach().numpy(),
     #                 alpha=0.3)
 
-    plt.legend()
-    plt.grid(True)
+    # plt.legend()
+    
+    # plt.grid(True)
 
-    plt.savefig('my_plot.png', bbox_inches='tight')
+    # plt.savefig('my_plot.png', bbox_inches='tight')
+
+    plt.savefig(directory_path + '_T102_zoomed.pdf', format='pdf', bbox_inches='tight')
     # plt.figure()
     # plt.plot(range(T), Ub_gd[-1][0], label="Gradient Descent")
     # plt.plot(range(T), Ub_pgd[-1][0], label="Projected Gradient Descent")
@@ -1054,7 +1061,6 @@ def main():
     # plt.grid(True)
     # plt.title("Control Input Trajectories")
     plt.show()
-
 
     print(f"That's all folks!")
  
